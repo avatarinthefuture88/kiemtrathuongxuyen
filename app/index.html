@@ -1,0 +1,2244 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔑</text></svg>">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kiểm Tra Đánh Giá Kiến Thức</title>
+    
+    <!-- CẤU HÌNH CHẠY OFFLINE (Cần thư mục js/ cùng cấp) -->
+    <script src="js/tailwind.js"></script>
+    <script src="js/react.js"></script>
+    <script src="js/react-dom.js"></script>
+    <script src="js/babel.js"></script>
+    <script src="js/mammoth.js"></script>
+
+    <style>
+      /* Cấu hình Font chữ hệ thống (Không cần mạng) */
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #0b0c10;
+        color: white;
+      }
+      
+      /* Ép màu sắc hiển thị đúng khi Tailwind chưa load kịp */
+      .text-yellow-400 { color: #facc15 !important; }
+      .text-red-500 { color: #ef4444 !important; }
+      .bg-yellow-400 { background-color: #facc15 !important; color: black !important; }
+      .bg-blue-600 { background-color: #2563eb !important; color: white !important; }
+
+      /* Scrollbar */
+      .custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
+      .custom-scrollbar::-webkit-scrollbar-track { background: #1f2833; }
+      .custom-scrollbar::-webkit-scrollbar-thumb { background: #facc15; border-radius: 3px; }
+
+      /* Định dạng cho các công thức toán/hóa (sup, sub) */
+      sup { vertical-align: super; font-size: smaller; line-height: 0; }
+      sub { vertical-align: sub; font-size: smaller; line-height: 0; }
+      strong { font-weight: bold; color: #facc15; }
+      em { font-style: italic; }
+      /* Reset ảnh trong nội dung câu hỏi (nếu có từ Word) để không bị vỡ layout */
+      .question-content img { display: inline-block; max-width: 100%; height: auto; border-radius: 4px; margin: 4px 0; }
+      .option-content img { display: inline-block; max-height: 50px; vertical-align: middle; }
+    </style>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-[#0b0c10]">
+    <div id="root"></div>
+    
+    <!-- Thông báo lỗi nếu không tải được React (Do sai đường dẫn thư mục) -->
+    <div id="loading-error" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0b0c10; color: #ef4444; z-index: 9999; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px;">
+        <h1 style="font-size: 2em; margin-bottom: 20px;">⚠️ LỖI KHÔNG TẢI ĐƯỢC THƯ VIỆN</h1>
+        <p style="font-size: 1.2em; color: white;">Ứng dụng không thể chạy vì không tìm thấy các file trong thư mục <b>"js"</b>.</p>
+        <div style="background: #1f2833; padding: 20px; border-radius: 10px; margin-top: 20px; border: 1px solid #facc15;">
+            <p style="margin-bottom: 10px;">Vui lòng kiểm tra lại cấu trúc thư mục của bạn:</p>
+            <ul style="text-align: left; display: inline-block; color: #c5c6c7;">
+                <li>📁 Thư mục chứa game</li>
+                <li>&nbsp;&nbsp;&nbsp;📄 <b>Bai_Kiem_Tra.html</b> (File này)</li>
+                <li>&nbsp;&nbsp;&nbsp;📁 <b>js</b> (Phải nằm ngay cạnh file html)</li>
+                <li>&nbsp;&nbsp;&nbsp;📁 <b>sounds</b> (Phải nằm ngay cạnh file html)</li>
+            </ul>
+        </div>
+        <p style="margin-top: 20px; color: #facc15;">Sau khi sửa, hãy tải lại trang (F5).</p>
+    </div>
+
+    <script>
+        // Kiểm tra xem React đã được tải chưa sau 1 giây
+        setTimeout(function() {
+            if (typeof React === 'undefined') {
+                document.getElementById('loading-error').style.display = 'flex';
+            }
+        }, 1000);
+    </script>
+
+    <script type="text/babel">
+      const { useState, useCallback, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } = React;
+
+      // --- 3. SỬA LỖI ÂM THANH: Trỏ vào thư mục sounds ---
+      const SOUND_URLS = {
+        tick: "./sounds/tick.mp3",
+        correct: "./sounds/correct.mp3",
+        wrong: "./sounds/wrong.mp3",
+        scratch: "./sounds/scratch.mp3",
+        win: "./sounds/win.mp3"
+      };
+
+      const playSound = (type, volume) => {
+        try {
+            const audio = new Audio(SOUND_URLS[type]);
+            audio.volume = volume !== undefined ? volume : 0.5; 
+            
+            const playPromise = audio.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                    // Lỗi này thường do chưa tải file âm thanh hoặc sai tên file
+                    console.error("Lỗi phát âm thanh (Kiểm tra file trong thư mục sounds): " + type);
+                });
+            }
+        } catch (err) {
+            console.error("Không tìm thấy file âm thanh:", err);
+        }
+      };
+      const ICON_TYPES = [
+        'calculator', 'book', 'dictionary', 'pyramid', 'globe', 'dna', 'beaker', 'bulb', 'laptop', 'scales', 'gears'
+      ];
+      const IconStatus = {
+        IDLE: 'IDLE',
+        CORRECT: 'CORRECT',
+        INCORRECT: 'INCORRECT',
+      };
+
+      const CalculatorIcon = (props) => (
+        <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <defs>
+            <linearGradient id="calcBodyGrad" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stopColor="#8A9BAD"/><stop offset="100%" stopColor="#667280"/></linearGradient>
+            <linearGradient id="calcScreenGrad" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stopColor="#C2E4D4"/><stop offset="100%" stopColor="#A3D1B8"/></linearGradient>
+          </defs>
+          <path fill="url(#calcBodyGrad)" d="M5 2h14a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" />
+          <path fill="#333" d="M5 3h14a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" />
+          <path fill="url(#calcScreenGrad)" d="M7 5h10v5H7z" />
+          <rect x="7" y="12" width="2" height="2" rx="0.5" fill="#E0E0E0" />
+          <rect x="11" y="12" width="2" height="2" rx="0.5" fill="#E0E0E0" />
+          <rect x="15" y="12" width="2" height="2" rx="0.5" fill="#F9A825" />
+          <rect x="7" y="15" width="2" height="2" rx="0.5" fill="#E0E0E0" />
+          <rect x="11" y="15" width="2" height="2" rx="0.5" fill="#E0E0E0" />
+          <rect x="15" y="15" width="2" height="2" rx="0.5" fill="#F9A825" />
+          <rect x="7" y="18" width="6" height="2" rx="0.5" fill="#E0E0E0" />
+          <rect x="15" y="18" width="2" height="2" rx="0.5" fill="#F9A825" />
+        </svg>
+      );
+      const BookIcon = (props) => (
+        <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <defs><linearGradient id="bookCoverGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4A90E2"/><stop offset="100%" stopColor="#357ABD"/></linearGradient></defs>
+          <path fill="#D1D5DB" d="M19 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h13c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 18H7V4h11v16z"/>
+          <path fill="url(#bookCoverGrad)" d="M7 4h11v16H7V4z" />
+          <path fill="#fff" d="M9 6h5v2H9zm0 4h7v2H9zm0 4h4v2H9z" opacity="0.8"/>
+        </svg>
+      );
+      const DictionaryIcon = (props) => (
+        <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <defs><linearGradient id="dictCoverGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#D94A4A"/><stop offset="100%" stopColor="#B33030"/></linearGradient></defs>
+          <path fill="#D1D5DB" d="M19 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h13c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 18H7V4h11v16z"/>
+          <path fill="url(#dictCoverGrad)" d="M7 4h11v16H7V4z" />
+          <text x="12.5" y="16" fontFamily="serif" fontSize="12" fill="white" textAnchor="middle" fontWeight="bold">A</text>
+        </svg>
+      );
+      const PyramidIcon = (props) => (
+        <svg {...props} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 4L4 20H20L12 4Z" fill="url(#pyramidGrad1)"/>
+          <path d="M12 4V20H20L12 4Z" fill="url(#pyramidGrad2)"/>
+          <defs>
+            <linearGradient id="pyramidGrad1" x1="12" y1="4" x2="12" y2="20" gradientUnits="userSpaceOnUse"><stop stopColor="#FDE68A"/><stop offset="1" stopColor="#F59E0B"/></linearGradient>
+            <linearGradient id="pyramidGrad2" x1="16" y1="12" x2="12" y2="20" gradientUnits="userSpaceOnUse"><stop stopColor="#FDBA74"/><stop offset="1" stopColor="#D97706"/></linearGradient>
+          </defs>
+        </svg>
+      );
+      const GlobeIcon = (props) => (
+        <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <defs>
+            <radialGradient id="globeGrad" cx="50%" cy="40%" r="50%" fx="50%" fy="40%"><stop offset="0%" stopColor="#81E6D9"/><stop offset="100%" stopColor="#319795"/></radialGradient>
+            <linearGradient id="standGrad" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stopColor="#A0AEC0"/><stop offset="100%" stopColor="#718096"/></linearGradient>
+          </defs>
+          <path d="M15 20.5c0 .83-.67 1.5-1.5 1.5h-3c-.83 0-1.5-.67-1.5-1.5v-1h6v1z" fill="url(#standGrad)" />
+          <path d="M12 16.5l2 3H10l2-3z" fill="url(#standGrad)" />
+          <circle cx="12" cy="10" r="8" fill="url(#globeGrad)" />
+          <path d="M12 2c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zm4.9 11.7c-.2-.1-.4-.2-.6-.3-.7-.3-1.4-.4-2.1-.3-.6.1-1.2.3-1.7.6-.5.3-1 .7-1.5 1-.4.2-.7.4-1.1.5-.5.1-1 .2-1.5.1-.6-.1-1.2-.4-1.7-.7-.5-.3-1-.7-1.4-1.1-.3-.3-.6-.7-.8-1-.2-.4-.3-.8-.3-1.3 0-.5.1-1 .3-1.5.2-.4.4-.8.7-1.2.3-.3.6-.6.9-.9.4-.3.8-.5 1.2-.7.5-.2 1-.3 1.5-.2.6.1 1.1.3 1.6.6.5.3 1 .7 1.4 1.1.3.3.6.7.8 1 .2.4.3.8.3 1.3 0 .5-.1 1-.3 1.5-.1.3-.6-.5.9z" fill="#38A169" opacity="0.7"/>
+        </svg>
+      );
+      const DnaIcon = (props) => (
+        <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <defs>
+            <linearGradient id="dnaGrad1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#63B3ED"/><stop offset="100%" stopColor="#4299E1"/></linearGradient>
+            <linearGradient id="dnaGrad2" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stopColor="#F6AD55"/><stop offset="100%" stopColor="#ED8936"/></linearGradient>
+          </defs>
+          <path d="M6,3 C10,3 10,9 14,9 C18,9 18,3 22,3" stroke="url(#dnaGrad1)" strokeWidth="2" fill="none" strokeLinecap="round"/>
+          <path d="M2,21 C6,21 6,15 10,15 C14,15 14,21 18,21" stroke="url(#dnaGrad2)" strokeWidth="2" fill="none" strokeLinecap="round"/>
+          <line x1="7" y1="5.4" x2="6" y2="18.6" stroke="#A0AEC0" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="9.6" y1="8" x2="8.6" y2="16" stroke="#A0AEC0" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="12.5" y1="9" x2="11.5" y2="15" stroke="#A0AEC0" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="15.3" y1="8" x2="14.3" y2="16" stroke="#A0AEC0" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="18" y1="5.4" x2="17" y2="18.6" stroke="#A0AEC0" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
+      );
+      const BeakerIcon = (props) => (
+        <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <defs>
+            <linearGradient id="glassGrad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#EBF8FF" stopOpacity="0.5"/><stop offset="50%" stopColor="#EBF8FF" stopOpacity="0.1"/><stop offset="100%" stopColor="#EBF8FF" stopOpacity="0.5"/></linearGradient>
+            <linearGradient id="liquidGrad" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stopColor="#68D391"/><stop offset="100%" stopColor="#48BB78"/></linearGradient>
+          </defs>
+          <path d="M5 3H19V5H5z" fill="#BEE3F8" fillOpacity="0.7"/>
+          <path d="M7 5V20C7 20.55 7.45 21 8 21H16C16.55 21 17 20.55 17 20V5H7z" fill="url(#glassGrad)"/>
+          <path d="M7 12v7c.55 0 1-.45 1-1h6c0 .55.45 1 1 1v-7H7z" fill="url(#liquidGrad)"/>
+          <circle cx="10" cy="15" r="1" fill="#fff" opacity="0.6"/>
+          <circle cx="14" cy="17" r="0.7" fill="#fff" opacity="0.5"/>
+        </svg>
+      );
+      const BulbIcon = (props) => (
+        <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <defs>
+            <radialGradient id="bulbGrad" cx="50%" cy="30%" r="60%" fx="50%" fy="30%"><stop offset="0%" stopColor="#FEFCE8"/><stop offset="100%" stopColor="#FBBF24"/></radialGradient>
+            <filter id="glow"><feGaussianBlur stdDeviation="1.5" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          </defs>
+          <g filter="url(#glow)"><path fill="url(#bulbGrad)" d="M12,2C8.686,2,6,4.686,6,8c0,3.314,2.686,6,6,6s6-2.686,6-6C18,4.686,15.314,2,12,2z" /></g>
+          <path fill="#E5E7EB" d="M9 19h6v2H9z" />
+          <path fill="#B0B0B0" d="M10 14h4v5h-4z" />
+          <path d="M11 15h2v3h-2z" fill="#FBBF24" />
+        </svg>
+      );
+      const LaptopIcon = (props) => (
+        <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <defs>
+              <linearGradient id="laptopBase" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stopColor="#718096" /><stop offset="100%" stopColor="#4A5568" /></linearGradient>
+              <linearGradient id="laptopScreenFrame" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stopColor="#4A5568" /><stop offset="100%" stopColor="#2D3748" /></linearGradient>
+          </defs>
+          <path fill="url(#laptopBase)" d="M23,18H1c-0.6,0-1,0.4-1,1v1h24v-1C24,18.4,23.6,18,23,18z" />
+          <path fill="url(#laptopScreenFrame)" d="M22,3H2C1.4,3,1,3.4,1,4v12h22V4C23,3.4,22.6,3,22,3z" />
+          <rect x="3" y="5" width="18" height="10" fill="#3B82F6"/>
+          <circle cx="12" cy="15.5" r="0.5" fill="#2D3748" />
+        </svg>
+      );
+      const ScalesIcon = (props) => (
+        <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <defs><linearGradient id="scalesGrad" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stopColor="#F6E05E"/><stop offset="100%" stopColor="#D69E2E"/></linearGradient></defs>
+          <path fill="url(#scalesGrad)" d="M12 2L3 6v2h18V6L12 2zM5.5 10l-3 3h3v9h3v-9h3l-3-3zm13 0l-3 3h3v9h3v-9h3l-3-3z"/>
+          <path fill="#B7791F" d="M11 20h2v2h-2z"/>
+        </svg>
+      );
+      const GearsIcon = (props) => (
+        <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <defs>
+            <linearGradient id="gear1Grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#A0AEC0"/><stop offset="100%" stopColor="#718096"/></linearGradient>
+            <linearGradient id="gear2Grad" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stopColor="#F6E05E"/><stop offset="100%" stopColor="#D69E2E"/></linearGradient>
+          </defs>
+          <path fill="url(#gear1Grad)" d="M19.4,12.5l1.5-0.9v-1.1l-1.5-0.9c-0.2-0.5-0.4-0.9-0.7-1.3l0.7-1.6l-0.8-0.8l-1.6,0.7c-0.4-0.3-0.8-0.5-1.3-0.7 l-0.9-1.5h-1.1l-0.9,1.5c-0.5,0.2-0.9,0.4-1.3,0.7l-1.6-0.7l-0.8,0.8l0.7,1.6c-0.3,0.4-0.5,0.8-0.7,1.3l-1.5,0.9v1.1l1.5,0.9 c0.2,0.5,0.4,0.9,0.7,1.3l-0.7,1.6l0.8,0.8l1.6-0.7c0.4,0.3,0.8,0.5,1.3,0.7l0.9,1.5h1.1l0.9,1.5c0.5-0.2,0.9-0.4,1.3-0.7 l1.6,0.7l0.8-0.8l-0.7-1.6C19,13.4,19.2,12.9,19.4,12.5z M16,13c-1.1,0-2-0.9-2-2s0.9-2,2-2s2,0.9,2,2S17.1,13,16,13z"/>
+          <path fill="url(#gear2Grad)" d="M8.5,15.9l1.4-0.8v-2.2L8.5,12c-0.6,0.3-1.1,0.7-1.5,1.2L5.2,12l-1.1,1.9l1.2,1.7c-0.1,0.6-0.1,1.1,0,1.7L4.1,19 l1.1,1.9l1.7-1.2C7.4,20.1,8,20.5,8.5,20.8l0.8,1.4h2.2l0.8-1.4c0.6-0.3,1.1-0.7,1.5-1.2l-1.4,0.8c-1.1,0-2-0.9-2-2 C10.5,16.8,9.6,15.9,8.5,15.9z"/>
+        </svg>
+      );
+
+      const iconMap = {
+        calculator: CalculatorIcon, book: BookIcon, dictionary: DictionaryIcon, pyramid: PyramidIcon, globe: GlobeIcon,
+        dna: DnaIcon, beaker: BeakerIcon, bulb: BulbIcon, laptop: LaptopIcon, scales: ScalesIcon, gears: GearsIcon,
+      };
+
+      const Icon = ({ type, ...props }) => {
+        const SvgIcon = iconMap[type];
+        return SvgIcon ? <SvgIcon {...props} /> : null;
+      };
+
+      // --- CONFETTI COMPONENT ---
+      const confettiColors = ["#FFD700", "#00FFFF", "#66FCF1", "#FFFFFF", "#C5C6C7"];
+      const Confetti = ({ triggerRef }) => {
+          const canvasRef = useRef(null);
+          const animationFrameId = useRef();
+          const particles = useRef([]);
+
+          const createParticle = useCallback((width, height) => ({
+              x: Math.random() * width,
+              y: -10,
+              vx: (Math.random() - 0.5) * 6,
+              vy: Math.random() * 5 + 2,
+              radius: Math.random() * 5 + 2,
+              color: confettiColors[Math.floor(Math.random() * confettiColors.length)],
+              opacity: 1,
+              angle: Math.random() * Math.PI * 2,
+              spin: (Math.random() - 0.5) * 0.2,
+          }), []);
+
+          const updateParticle = useCallback((p, height) => {
+              p.vy += 0.05; // gravity
+              p.x += p.vx;
+              p.y += p.vy;
+              p.angle += p.spin;
+              if (p.y > height) {
+                  p.y = -10;
+                  p.x = Math.random() * (canvasRef.current?.width || 0);
+              }
+          }, []);
+
+          const drawParticle = useCallback((ctx, p) => {
+              ctx.save();
+              ctx.translate(p.x, p.y);
+              ctx.rotate(p.angle);
+              ctx.fillStyle = p.color;
+              ctx.globalAlpha = p.opacity;
+              ctx.fillRect(-p.radius, -p.radius / 2, p.radius * 2, p.radius);
+              ctx.restore();
+          }, []);
+
+          const trigger = useCallback(() => {
+              const canvas = canvasRef.current;
+              if (!canvas) return;
+              const count = 200;
+              const duration = 5000;
+              const end = Date.now() + duration;
+
+              particles.current = [];
+              for (let i = 0; i < count; i++) {
+                  particles.current.push(createParticle(canvas.width, canvas.height));
+              }
+
+              const frame = () => {
+                  const now = Date.now();
+                  if (now > end) {
+                      particles.current = [];
+                      if (animationFrameId.current) {
+                          cancelAnimationFrame(animationFrameId.current);
+                      }
+                      const ctx = canvas.getContext('2d');
+                      ctx?.clearRect(0, 0, canvas.width, canvas.height);
+                      return;
+                  }
+
+                  const ctx = canvas.getContext('2d');
+                  if (ctx) {
+                      ctx.clearRect(0, 0, canvas.width, canvas.height);
+                      particles.current.forEach(p => {
+                          updateParticle(p, canvas.height);
+                          drawParticle(ctx, p);
+                      });
+                  }
+                  animationFrameId.current = requestAnimationFrame(frame);
+              };
+              
+              if (animationFrameId.current) {
+                cancelAnimationFrame(animationFrameId.current);
+              }
+              animationFrameId.current = requestAnimationFrame(frame);
+          }, [createParticle, updateParticle, drawParticle]);
+          
+          useEffect(() => {
+              if (triggerRef) {
+                  triggerRef.current = trigger;
+              }
+          }, [triggerRef, trigger]);
+
+
+          useEffect(() => {
+              const canvas = canvasRef.current;
+              const parent = canvas?.parentElement;
+              if (!canvas || !parent) return;
+
+              const resizeObserver = new ResizeObserver(entries => {
+                  for (let entry of entries) {
+                      const { width, height } = entry.contentRect;
+                      canvas.width = width;
+                      canvas.height = height;
+                  }
+              });
+
+              resizeObserver.observe(document.body);
+
+              return () => {
+                  resizeObserver.disconnect();
+                  if (animationFrameId.current) {
+                      cancelAnimationFrame(animationFrameId.current);
+                  }
+              };
+          }, []);
+
+          return <canvas ref={canvasRef} className="fixed top-0 left-0 w-full h-full pointer-events-none z-[100]" />;
+      };
+
+      // --- CIRCULAR TIMER COMPONENT ---
+      const CircularTimer = ({ duration, onTimeout }) => {
+          const [timeLeft, setTimeLeft] = useState(duration);
+          const radius = 20;
+          const circumference = 2 * Math.PI * radius;
+          const strokeDashoffset = circumference - ((timeLeft / duration) * circumference);
+
+          useEffect(() => {
+              if (timeLeft <= 0) {
+                  onTimeout();
+                  return;
+              }
+              const interval = setInterval(() => {
+                  setTimeLeft((prev) => {
+                      const newTime = Math.max(0, prev - 1);
+                      
+                      // Logic for sound: 
+                      // 1. First half (duration to duration/2): Silence.
+                      // 2. Second half (duration/2 to 0): Sound volume increases linearly from 0.05 to 0.1.
+                      const halfDuration = duration / 2;
+                      
+                      if (newTime <= halfDuration && newTime > 0) {
+                         // Calculate progress in the second half.
+                         // When newTime = halfDuration, progress = 0.
+                         // When newTime = 0, progress = 1.
+                         // Formula: (halfDuration - newTime) / halfDuration
+                         const progress = (halfDuration - newTime) / halfDuration;
+                         
+                         // Volume map: 0.05 -> 0.1
+                         const dynamicVolume = 0.05 + (0.05 * progress);
+                         playSound('tick', dynamicVolume);
+                      }
+                      
+                      return newTime;
+                  });
+              }, 1000);
+              return () => clearInterval(interval);
+          }, [timeLeft, onTimeout, duration]);
+
+          // Calculate color: Green > 50%, Yellow > 20%, Red <= 20%
+          let strokeColor = "#22c55e"; // green
+          if (timeLeft / duration <= 0.2) strokeColor = "#ef4444"; // red
+          else if (timeLeft / duration <= 0.5) strokeColor = "#eab308"; // yellow
+
+          return (
+              <div className="relative flex items-center justify-center w-16 h-16 bg-black/50 rounded-full backdrop-blur-sm shadow-lg border border-white/10">
+                  <svg className="w-full h-full transform -rotate-90" viewBox="0 0 50 50">
+                      <circle cx="25" cy="25" r={radius} stroke="#333" strokeWidth="4" fill="none" />
+                      <circle
+                          cx="25"
+                          cy="25"
+                          r={radius}
+                          stroke={strokeColor}
+                          strokeWidth="4"
+                          fill="none"
+                          strokeDasharray={circumference}
+                          strokeDashoffset={strokeDashoffset}
+                          strokeLinecap="round"
+                          className="transition-all duration-1000 ease-linear"
+                      />
+                  </svg>
+                  <span className={`absolute text-lg font-bold ${timeLeft <= 5 ? 'text-red-500 animate-pulse' : 'text-white'}`}>
+                      {timeLeft}
+                  </span>
+              </div>
+          );
+      };
+
+      // --- COPYRIGHT FOOTER COMPONENT ---
+      const CopyrightFooter = () => (
+          <div className="fixed bottom-1 left-0 w-full text-center z-[1000] pointer-events-none">
+             <p className="text-[8px] md:text-[10px] text-yellow-200 opacity-40 font-light tracking-widest uppercase" style={{ textShadow: '1px 1px 2px rgba(0,0,0,0.8)' }}>
+                TRƯỜNG: THPT PHAN CHU TRINH CƯ JÚT - GIÁO VIÊN: ĐỖ THỊ THANH THỦY
+             </p>
+          </div>
+      );
+
+      // --- FEEDBACK OVERLAY COMPONENT ---
+      const SadFaceIcon = () => (
+          <div className="relative w-[120px] h-[120px] animate-fade-in-scale">
+              <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="60" cy="60" r="55" fill="#FFD700" stroke="#FBBF24" strokeWidth="5"/>
+                  <circle cx="45" cy="50" r="7" fill="#1f2833"/>
+                  <circle cx="75" cy="50" r="7" fill="#1f2833"/>
+                  <path d="M40 85 C50 75, 70 75, 80 85" stroke="#1f2833" strokeWidth="5" strokeLinecap="round" fill="none"/>
+                  <path d="M48 65 C48 75, 40 78, 40 85" stroke="#3B82F6" strokeWidth="5" strokeLinecap="round" fill="none" className="animate-tear-drop" />
+              </svg>
+              <style>{`
+                  @keyframes tear-drop {
+                      0% { opacity: 0; transform: translateY(-10px) scaleY(0.5); }
+                      30% { opacity: 1; transform: translateY(0) scaleY(1); }
+                      100% { opacity: 0; transform: translateY(30px) scaleY(1); }
+                  }
+                  .animate-tear-drop {
+                      animation: tear-drop 1.8s ease-in-out infinite;
+                      transform-origin: top center;
+                  }
+              `}</style>
+          </div>
+      );
+
+      const Fireworks = () => {
+          const numBursts = 5;
+          const colors = ['#FFD700', '#FF4500', '#00FFFF', '#ADFF2F', '#FFFFFF', '#FF69B4'];
+
+          const bursts = useMemo(() => {
+              return [...Array(numBursts)].map(() => ({
+                  top: `${Math.random() * 80 + 10}%`,
+                  left: `${Math.random() * 80 + 10}%`,
+                  delay: `${Math.random() * 0.6}s`,
+                  count: Math.floor(Math.random() * 15) + 25,
+              }));
+          }, []);
+
+          return (
+              <div className="relative w-[300px] h-[300px]">
+                   <style>{`
+                      .burst {
+                          position: absolute;
+                          transform-style: preserve-3d;
+                      }
+                      .particle {
+                          position: absolute;
+                          width: 5px;
+                          height: 5px;
+                          border-radius: 50%;
+                          animation: explode 1.2s ease-out forwards;
+                          box-shadow: 0 0 5px var(--glow-color), 0 0 10px var(--glow-color);
+                      }
+                      @keyframes explode {
+                          0% {
+                              transform: translate(0, 0) scale(1);
+                              opacity: 1;
+                          }
+                          50% {
+                              opacity: 0.8;
+                          }
+                          100% {
+                              transform: translate(var(--tx), var(--ty)) scale(0);
+                              opacity: 0;
+                          }
+                      }
+                  `}</style>
+                  {bursts.map((burst, burstIndex) => (
+                      <div key={burstIndex} className="burst" style={{ top: burst.top, left: burst.left }}>
+                          {[...Array(burst.count)].map((_, i) => {
+                              const angle = (i / burst.count) * 360;
+                              const distance = Math.random() * 100 + 50;
+                              const translateX = `${Math.cos(angle * Math.PI / 180) * distance}px`;
+                              const translateY = `${Math.sin(angle * Math.PI / 180) * distance}px`;
+                              const randomColor = colors[Math.floor(Math.random() * colors.length)];
+
+                              return (
+                                  <div
+                                      key={i}
+                                      className="particle"
+                                      style={{
+                                          background: randomColor,
+                                          '--glow-color': randomColor,
+                                          '--tx': translateX,
+                                          '--ty': translateY,
+                                          animationDelay: burst.delay,
+                                      }}
+                                  />
+                              );
+                          })}
+                      </div>
+                  ))}
+              </div>
+          );
+      };
+
+      const FeedbackOverlay = ({ type, onClose, correctAnswerText }) => {
+          useEffect(() => {
+              // Longer duration for error/timeout to read correct answer
+              const duration = (type === 'error' || type === 'timeout') ? 4000 : 1500;
+              const timer = setTimeout(onClose, duration);
+              return () => clearTimeout(timer);
+          }, [onClose, type]);
+
+          const content = {
+              success: {
+                  message: "CHÍNH XÁC",
+                  element: <Fireworks />,
+                  textColor: 'text-yellow-400',
+              },
+              error: {
+                  message: "EM TRẢ LỜI SAI RỒI",
+                  element: <SadFaceIcon />,
+                  textColor: 'text-red-400',
+		fontFamily: 'Segoe UI, Arial, sans-serif'
+              },
+              timeout: {
+                  message: "ĐÃ HẾT THỜI GIAN",
+                  element: <SadFaceIcon />,
+                  textColor: 'text-orange-500',
+              }
+          };
+
+          const currentContent = content[type];
+
+          return (
+              <div className="fixed inset-0 bg-black/80 flex flex-col items-center justify-center p-4 z-[999] animate-fade-in-bg">
+                  <style>{`
+                      @keyframes fade-in-bg {
+                          from { opacity: 0; }
+                          to { opacity: 1; }
+                      }
+                      .animate-fade-in-bg {
+                          animation: fade-in-bg 0.3s ease-out forwards;
+                      }
+                      @keyframes fade-in-scale {
+                          from { opacity: 0; transform: scale(0.8); }
+                          to { opacity: 1; transform: scale(1); }
+                      }
+                      .animate-fade-in-scale {
+                          animation: fade-in-scale 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+                      }
+                  `}</style>
+                  <div className="mb-8">
+                      {currentContent.element}
+                  </div>
+                  <h2 className={`text-2xl md:text-3xl font-black text-center ${currentContent.textColor} animate-fade-in-scale`} style={{animationDelay: '0.2s', textShadow: '2px 2px 4px rgba(0,0,0,0.5)'}}>
+                      {currentContent.message}
+                  </h2>
+                  {(type === 'error' || type === 'timeout') && correctAnswerText && (
+                      <p className="text-white text-2xl md:text-4xl mt-6 font-bold text-center max-w-4xl animate-fade-in-scale flex flex-col items-center gap-2" style={{animationDelay: '0.3s'}}>
+                          <span>ĐÁP ÁN ĐÚNG LÀ:</span>
+                          <span className="text-yellow-400" dangerouslySetInnerHTML={{__html: correctAnswerText}}></span>
+                      </p>
+                  )}
+              </div>
+          );
+      };
+
+
+      // --- SCRATCH CANVAS COMPONENT ---
+      const getGridDimensions = (n, desiredRows) => {
+        if (n <= 0) return { cols: 1, rows: 1 };
+        const numRows = desiredRows > 0 ? desiredRows : 1;
+        const numCols = Math.ceil(n / numRows);
+        return { cols: numCols, rows: numRows };
+      };
+
+      const ScratchCanvas = forwardRef(({ numAreas, rows: desiredRows = 1 }, ref) => {
+        const canvasRef = useRef(null);
+        const isDrawing = useRef(false);
+        const unrevealedAreas = useRef([]);
+        const lastScratchTime = useRef(0);
+
+        const { cols, rows } = useMemo(() => getGridDimensions(numAreas, desiredRows), [numAreas, desiredRows]);
+
+        const getAreaCoords = useCallback((index) => {
+          if (!canvasRef.current) return { x: 0, y: 0, w: 0, h: 0 };
+          const { width, height } = canvasRef.current;
+          const cellWidth = width / cols;
+          const cellHeight = height / rows;
+          const col = index % cols;
+          const row = Math.floor(index / cols);
+          return { x: col * cellWidth, y: row * cellHeight, w: cellWidth, h: cellHeight };
+        }, [cols, rows]);
+
+        const clearArea = useCallback((index) => {
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+
+          const { x, y, w, h } = getAreaCoords(index);
+          ctx.globalCompositeOperation = 'destination-out';
+          ctx.fillRect(x, y, w, h);
+        }, [getAreaCoords]);
+
+        useImperativeHandle(ref, () => ({
+          revealRandomArea: () => {
+            if (unrevealedAreas.current.length > 0) {
+              const randomIndexInArray = Math.floor(Math.random() * unrevealedAreas.current.length);
+              const areaIndexToReveal = unrevealedAreas.current.splice(randomIndexInArray, 1)[0];
+              clearArea(areaIndexToReveal);
+            }
+          },
+          revealAll: () => {
+            const canvas = canvasRef.current;
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
+        }));
+
+        useEffect(() => {
+          const canvas = canvasRef.current;
+          const parent = canvas?.parentElement;
+          if (!canvas || !parent) return;
+
+          const initializeCanvas = () => {
+              const ctx = canvas.getContext('2d');
+              if (!ctx) return;
+
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.globalCompositeOperation = 'source-over';
+              ctx.fillStyle = '#C0C0C0';
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              unrevealedAreas.current = Array.from({ length: numAreas }, (_, i) => i);
+          };
+
+          const resizeObserver = new ResizeObserver(entries => {
+            for (let entry of entries) {
+              const { width, height } = entry.contentRect;
+              canvas.width = width;
+              canvas.height = height;
+              initializeCanvas();
+            }
+          });
+          
+          resizeObserver.observe(parent);
+          
+          canvas.width = parent.clientWidth;
+          canvas.height = parent.clientHeight;
+          initializeCanvas();
+
+          return () => resizeObserver.disconnect();
+        }, [numAreas, cols, rows]);
+
+        const getBrushPos = (x, y) => {
+          const canvas = canvasRef.current;
+          if (!canvas) return { x: 0, y: 0 };
+          const rect = canvas.getBoundingClientRect();
+          return { x: x - rect.left, y: y - rect.top };
+        };
+
+        const scratch = (e) => {
+          if (!isDrawing.current || !canvasRef.current) return;
+          const ctx = canvasRef.current.getContext('2d');
+          if (!ctx) return;
+
+          e.preventDefault();
+          let mousePos;
+          if (e.touches) {
+            mousePos = getBrushPos(e.touches[0].clientX, e.touches[0].clientY);
+          } else {
+            mousePos = getBrushPos(e.clientX, e.clientY);
+          }
+
+          ctx.globalCompositeOperation = 'destination-out';
+          ctx.beginPath();
+          ctx.arc(mousePos.x, mousePos.y, 25, 0, 2 * Math.PI);
+          ctx.fill();
+          
+          // Play scratch sound with throttling (every 200ms)
+          const now = Date.now();
+          if (now - lastScratchTime.current > 200) {
+              playSound('scratch');
+              lastScratchTime.current = now;
+          }
+        };
+
+        const startScratching = (e) => {
+          isDrawing.current = true;
+          scratch(e);
+        };
+        
+        const stopScratching = () => {
+          isDrawing.current = false;
+        };
+
+        return (
+          <canvas
+            ref={canvasRef}
+            className="absolute top-0 left-0 w-full h-full cursor-crosshair rounded-2xl"
+            onMouseDown={startScratching}
+            onMouseMove={scratch}
+            onMouseUp={stopScratching}
+            onMouseLeave={stopScratching}
+            onTouchStart={startScratching}
+            onTouchMove={scratch}
+            onTouchEnd={stopScratching}
+            onTouchCancel={stopScratching}
+          />
+        );
+      });
+      ScratchCanvas.displayName = "ScratchCanvas";
+
+      // --- WELCOME VIEW COMPONENT ---
+      const WelcomeView = ({ onModeSelect }) => {
+        const [showImageMenu, setShowImageMenu] = useState(false);
+
+        return (
+          <>
+            <div className="w-full max-w-3xl p-8 bg-[#1f2833] rounded-2xl shadow-lg border border-yellow-400/20 text-center animate-fade-in">
+              <style>{`
+                @keyframes fade-in {
+                  from { opacity: 0; transform: scale(0.95); }
+                  to { opacity: 1; transform: scale(1); }
+                }
+                .animate-fade-in { animation: fade-in 0.5s ease-out forwards; }
+              `}</style>
+              <h1 className="text-4xl font-bold text-center text-yellow-400 mb-8">
+                KIỂM TRA ĐÁNH GIÁ KIẾN THỨC
+              </h1>
+              <p className="text-lg text-[#c5c6c7] mb-10">
+                Chọn một chế độ để bắt đầu tạo kiểm tra đánh giá.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 justify-center gap-6">
+                <button
+                  onClick={() => onModeSelect('review_with_phrase')}
+                  className="w-full py-4 px-6 text-lg font-bold bg-yellow-400 text-black rounded-lg hover:bg-white hover:shadow-lg hover:shadow-yellow-400/50 transform hover:-translate-y-1 transition-all duration-300"
+                >
+                  KHỞI ĐỘNG CÓ TỪ KHÓA
+                </button>
+                <button
+                  onClick={() => onModeSelect('consolidate_with_phrase')}
+                  className="w-full py-4 px-6 text-lg font-bold bg-yellow-600 text-black rounded-lg hover:bg-white hover:shadow-lg hover:shadow-yellow-600/50 transform hover:-translate-y-1 transition-all duration-300"
+                >
+                  LUYỆN TẬP KIẾN THỨC CÓ TỪ KHÓA
+                </button>
+                <button
+                  onClick={() => onModeSelect('review_no_phrase')}
+                  className="w-full py-4 px-6 text-lg font-bold bg-blue-500 text-white rounded-lg hover:bg-blue-400 hover:shadow-lg hover:shadow-blue-500/50 transform hover:-translate-y-1 transition-all duration-300"
+                >
+                  KHỞI ĐỘNG TỐC ĐỘ NHANH
+                </button>
+                <button
+                  onClick={() => onModeSelect('consolidate_no_phrase')}
+                  className="w-full py-4 px-6 text-lg font-bold bg-green-500 text-white rounded-lg hover:bg-green-400 hover:shadow-lg hover:shadow-green-500/50 transform hover:-translate-y-1 transition-all duration-300"
+                >
+                  LUYỆN TẬP KIẾN THỨC KHÔNG CÓ TỪ KHÓA
+                </button>
+              </div>
+            </div>
+            
+            <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-4">
+              {showImageMenu && (
+                <div className="flex flex-col gap-3 mb-2 animate-fade-in">
+                    <button
+                        onClick={() => onModeSelect('image_mode_warmup')}
+                        className="px-6 py-3 bg-purple-600 text-white font-bold rounded-lg shadow-xl hover:bg-purple-500 hover:scale-105 transition-all whitespace-nowrap border border-purple-400"
+                    >
+                        KHỞI ĐỘNG
+                    </button>
+                    <button
+                        onClick={() => onModeSelect('image_mode_practice')}
+                        className="px-6 py-3 bg-pink-600 text-white font-bold rounded-lg shadow-xl hover:bg-pink-500 hover:scale-105 transition-all whitespace-nowrap border border-pink-400"
+                    >
+                        LUYỆN TẬP KIẾN THỨC
+                    </button>
+                </div>
+              )}
+              
+              <button
+                onClick={() => setShowImageMenu(!showImageMenu)}
+                className={`w-16 h-16 bg-purple-600 text-white rounded-full shadow-2xl border-2 border-purple-400 hover:bg-purple-500 transition-all duration-300 flex items-center justify-center group ${showImageMenu ? 'rotate-45' : 'hover:rotate-90'}`}
+                title="Chế độ câu hỏi hình ảnh"
+              >
+                <span className="text-4xl font-thin pb-2">+</span>
+              </button>
+            </div>
+          </>
+        );
+      };
+      
+      // --- IMAGE UPLOADER COMPONENT ---
+      const ImageUploader = ({ images, onUpload, onRemove, maxDim = 800, compact = false }) => {
+         const fileInputRef = useRef(null);
+
+         const compressImage = (file, maxD) => {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        let w = img.width;
+                        let h = img.height;
+                        if (w > h && w > maxD) { h *= maxD / w; w = maxD; }
+                        else if (h > w && h > maxD) { w *= maxD / h; h = maxD; }
+                        canvas.width = w;
+                        canvas.height = h;
+                        ctx.drawImage(img, 0, 0, w, h);
+                        resolve(canvas.toDataURL('image/jpeg', 0.7));
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+        };
+
+         const handleFileChange = async (e) => {
+            const files = Array.from(e.target.files);
+            if (files.length > 0) {
+                const compressedImages = await Promise.all(files.map(f => compressImage(f, maxDim)));
+                onUpload(compressedImages);
+            }
+            e.target.value = null; // reset
+         };
+
+         return (
+             <div className="flex flex-wrap items-center gap-2">
+                {images && images.map((img, i) => (
+                    <div key={i} className={`relative group ${compact ? 'w-12 h-12' : 'w-16 h-16'}`}>
+                        <img src={img} alt={`preview-${i}`} className="w-full h-full object-cover rounded border border-gray-600" />
+                        <button 
+                            onClick={() => onRemove(i)} 
+                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shadow-md hover:bg-red-600"
+                            title="Xóa ảnh"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                ))}
+                <label className={`${compact ? 'w-12 h-12' : 'w-16 h-16'} flex items-center justify-center border-2 border-dashed border-gray-600 rounded hover:border-yellow-400 hover:bg-gray-800 cursor-pointer transition flex-shrink-0 bg-gray-900`}>
+                    <span className="text-2xl text-gray-400 hover:text-yellow-400">+</span>
+                    <input 
+                        type="file" 
+                        ref={fileInputRef}
+                        accept="image/*" 
+                        multiple 
+                        onChange={handleFileChange} 
+                        className="hidden" 
+                    />
+                </label>
+             </div>
+         );
+      };
+
+      // --- TEACHER VIEW COMPONENT ---
+      const TeacherView = ({ onStartGame, gameMode, onBack }) => {
+        const [secretPhrase, setSecretPhrase] = useState('');
+        const [secretImage, setSecretImage] = useState(null); // Trạng thái cho ảnh từ khóa
+        const [secretImageRatio, setSecretImageRatio] = useState(16/9); // Default ratio
+        const [questionsText, setQuestionsText] = useState('');
+        const [selectedOption, setSelectedOption] = useState('random');
+        const [totalScore, setTotalScore] = useState(10);
+        const [timeLimit, setTimeLimit] = useState(''); // Empty means no limit
+        const [error, setError] = useState(null);
+        const [randomPreviewIcon, setRandomPreviewIcon] = useState(() => ICON_TYPES[Math.floor(Math.random() * ICON_TYPES.length)]);
+        const importDocxInputRef = useRef(null);
+        const secretImageInputRef = useRef(null);
+        
+        // State cho chế độ hình ảnh (Updated for multiple images)
+        const [manualQuestions, setManualQuestions] = useState([
+            { 
+                id: 0, 
+                question: '', 
+                options: { A: '', B: '', C: '', D: '' }, 
+                correctAnswer: 'A', 
+                images: [], 
+                optionImages: { A: [], B: [], C: [], D: [] } 
+            }
+        ]);
+        
+        const isImageMode = gameMode.startsWith('image_mode');
+        // Cho phép có phrase nếu nhập text HOẶC có ảnh
+        const hasPhrase = isImageMode ? (secretPhrase.trim().length > 0 || !!secretImage) : gameMode.includes('_with_phrase');
+        
+        const SUBJECT_OPTIONS = [
+            { name: 'Môn Toán (Máy tính bỏ túi)', icon: 'calculator' },
+            { name: 'Môn Ngữ văn (Quyển sách)', icon: 'book' },
+            { name: 'Môn Tiếng Anh (Quyển từ điển)', icon: 'dictionary' },
+            { name: 'Môn Lịch sử (Kim tự tháp)', icon: 'pyramid' },
+            { name: 'Môn Địa lý (Quả địa cầu)', icon: 'globe' },
+            { name: 'Môn Sinh học (ADN xoắn kép)', icon: 'dna' },
+            { name: 'Môn Hóa học (Ống nghiệm)', icon: 'beaker' },
+            { name: 'Môn Vật lý (Bóng đèn sáng)', icon: 'bulb' },
+            { name: 'Môn Tin học (Laptop)', icon: 'laptop' },
+            { name: 'Môn Giáo dục công dân (Cán cân công lý)', icon: 'scales' },
+            { name: 'Môn Công nghệ (Bánh răng cưa)', icon: 'gears' }
+        ];
+
+        useEffect(() => {
+          if (selectedOption === 'random') {
+            setRandomPreviewIcon(ICON_TYPES[Math.floor(Math.random() * ICON_TYPES.length)]);
+          }
+        }, [selectedOption]);
+
+        const titles = {
+            review_with_phrase: 'Thiết Lập: Khởi Động Có Từ Khóa',
+            consolidate_with_phrase: 'Thiết Lập: Luyện Tập Kiến Thức Có Từ Khóa',
+            review_no_phrase: 'Thiết Lập: Khởi Động Tốc Độ Nhanh',
+            consolidate_no_phrase: 'Thiết Lập: Luyện Tập Kiến Thức Không Có Từ Khóa',
+            image_mode_warmup: 'Thiết Lập: KHỞI ĐỘNG (Kèm Hình Ảnh)',
+            image_mode_practice: 'Thiết Lập: LUYỆN TẬP KIẾN THỨC (Kèm Hình Ảnh)'
+        };
+        const title = titles[gameMode] || 'Thiết Lập';
+
+        const secretPhraseLabel = 'Từ khóa (Không bắt buộc ở chế độ này)';
+        const secretPhrasePlaceholder = 'Nhập từ khóa nếu muốn có phần cào lớp bạc...';
+
+        // Xử lý upload ảnh từ khóa
+        const handleSecretImageUpload = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            // Nén ảnh đơn giản
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    let w = img.width;
+                    let h = img.height;
+                    const maxD = 1000; // Max dimension for secret image
+                    if (w > h && w > maxD) { h *= maxD / w; w = maxD; }
+                    else if (h > w && h > maxD) { w *= maxD / h; h = maxD; }
+                    canvas.width = w;
+                    canvas.height = h;
+                    ctx.drawImage(img, 0, 0, w, h);
+                    setSecretImageRatio(w / h);
+                    setSecretImage(canvas.toDataURL('image/jpeg', 0.8));
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+            e.target.value = null;
+        };
+
+        // Handlers for Question Images
+        const handleQuestionImagesUpload = (index, newImages) => {
+            const updated = [...manualQuestions];
+            updated[index].images = [...(updated[index].images || []), ...newImages];
+            setManualQuestions(updated);
+        };
+
+        const handleQuestionImageRemove = (qIndex, imgIndex) => {
+            const updated = [...manualQuestions];
+            updated[qIndex].images = updated[qIndex].images.filter((_, i) => i !== imgIndex);
+            setManualQuestions(updated);
+        };
+
+        // Handlers for Option Images
+        const handleOptionImagesUpload = (index, optKey, newImages) => {
+            const updated = [...manualQuestions];
+            if (!updated[index].optionImages) updated[index].optionImages = { A: [], B: [], C: [], D: [] };
+            updated[index].optionImages[optKey] = [...(updated[index].optionImages[optKey] || []), ...newImages];
+            setManualQuestions(updated);
+        };
+
+        const handleOptionImageRemove = (qIndex, optKey, imgIndex) => {
+            const updated = [...manualQuestions];
+             if (updated[qIndex].optionImages && updated[qIndex].optionImages[optKey]) {
+                updated[qIndex].optionImages[optKey] = updated[qIndex].optionImages[optKey].filter((_, i) => i !== imgIndex);
+             }
+            setManualQuestions(updated);
+        };
+
+
+        const handleQuestionChange = (index, field, value) => {
+            const updated = [...manualQuestions];
+            updated[index][field] = value;
+            setManualQuestions(updated);
+        };
+        
+        const handleOptionChange = (index, optionKey, value) => {
+            const updated = [...manualQuestions];
+            updated[index].options[optionKey] = value;
+            setManualQuestions(updated);
+        };
+
+        const addQuestion = () => {
+            setManualQuestions([...manualQuestions, { 
+                id: manualQuestions.length, 
+                question: '', 
+                options: { A: '', B: '', C: '', D: '' }, 
+                optionImages: { A: [], B: [], C: [], D: [] },
+                correctAnswer: 'A', 
+                images: [] 
+            }]);
+        };
+        
+        const removeQuestion = (index) => {
+            if (manualQuestions.length > 1) {
+                const updated = manualQuestions.filter((_, i) => i !== index).map((q, i) => ({...q, id: i}));
+                setManualQuestions(updated);
+            }
+        };
+
+        // --- WORD IMPORT LOGIC UPDATED FOR HTML (SUPERSCRIPT/SUBSCRIPT) ---
+        const parseHtmlData = (htmlContent) => {
+            // Create a temp div to traverse DOM
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = htmlContent;
+            
+            // Mammoth converts Word to HTML. Paragraphs are usually <p>.
+            // We need to group these into questions.
+            // Heuristic:
+            // 1. Identify "Question X:" or "Câu X:" in text content.
+            // 2. Identify Options A., B., C., D.
+            // 3. Identify Answer.
+            
+            // Flatten to list of lines (preserving HTML)
+            const lines = [];
+            const walk = (node) => {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    if (node.tagName === 'P' || /^H[1-6]$/.test(node.tagName) || node.tagName === 'LI') {
+                        // Keep innerHTML to preserve formatting
+                        lines.push({ text: node.textContent.trim(), html: node.innerHTML.trim() });
+                    } else {
+                        // Recurse for divs or other containers
+                        node.childNodes.forEach(walk);
+                    }
+                }
+            };
+            walk(tempDiv);
+            
+            const extractedQuestions = [];
+            let currentQ = null;
+
+            const questionRegex = /^(Câu|Question)\s*\d+[:.]\s*(.*)/i;
+            const optionRegex = /^([A-D])[.h)]\s*(.*)/i;
+            const answerRegex = /^(Đáp án đúng|Key|Answer)[:.]?\s*([A-D])/i;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const text = line.text;
+                const html = line.html;
+
+                const questionMatch = text.match(questionRegex);
+                if (questionMatch) {
+                    if (currentQ) {
+                         if (currentQ.options.A && currentQ.options.B && currentQ.options.C && currentQ.options.D) {
+                             extractedQuestions.push(currentQ);
+                        }
+                    }
+                    // Extract content after "Câu X:" but keep formatting
+                    // This is tricky. For simplicity, we use the whole HTML line, or try to strip the prefix in regex if possible.
+                    // But standardizing, we just keep the whole line is safer for formatting context, 
+                    // or we replace the prefix in the text.
+                    // Let's use the whole HTML but maybe highlight the question part.
+                    // Actually, let's just use the HTML.
+                    
+                    currentQ = {
+                        question: html, // Store HTML
+                        options: { A: '', B: '', C: '', D: '' },
+                        correctAnswer: 'A',
+                        id: extractedQuestions.length,
+                        images: [],
+                        optionImages: { A: [], B: [], C: [], D: [] }
+                    };
+                    continue;
+                }
+
+                if (currentQ) {
+                    const optionMatch = text.match(optionRegex);
+                    if (optionMatch) {
+                        const key = optionMatch[1].toUpperCase();
+                        // For options, we want the HTML content minus the "A." prefix if possible.
+                        // Simple regex replace on HTML string is risky.
+                        // We will store the full HTML line for now, or just the HTML content.
+                        // Let's store the HTML content. 
+                        // To clean up "A. H2O", we might want to remove "A.".
+                        // A safe way is to replace the text prefix in the HTML string, but that's complex.
+                        // We will just store the HTML line.
+                        
+                        // Attempt to remove prefix "A." from HTML if it's at the start
+                        let contentHtml = html;
+                        const prefixRegex = /^([A-D])[.h)]\s*/i;
+                        // This removes it from text, but in HTML it might be "<b>A.</b> content".
+                        // For stability, we keep it as is, or do a simple replace if it matches text structure.
+                        
+                        if (currentQ.options.hasOwnProperty(key)) {
+                            currentQ.options[key] = contentHtml;
+                        }
+                        continue;
+                    }
+
+                    const answerMatch = text.match(answerRegex);
+                    if (answerMatch) {
+                        currentQ.correctAnswer = answerMatch[2].toUpperCase();
+                        continue;
+                    }
+                }
+            }
+            
+            if (currentQ && currentQ.options.A && currentQ.options.B && currentQ.options.C && currentQ.options.D) {
+                extractedQuestions.push(currentQ);
+            }
+
+            return extractedQuestions;
+        };
+
+        const handleWordUpload = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const arrayBuffer = e.target.result;
+                // CHANGED: Use convertToHtml instead of extractRawText to preserve formatting
+                mammoth.convertToHtml({ arrayBuffer: arrayBuffer })
+                    .then((result) => {
+                        const html = result.value;
+                        const questions = parseHtmlData(html);
+                        
+                        if (questions.length === 0) {
+                            alert("Không tìm thấy câu hỏi nào đúng định dạng trong file Word.");
+                            return;
+                        }
+
+                        processImportedQuestions(questions);
+                        alert(`Đã nhập thành công ${questions.length} câu hỏi (kèm định dạng)!`);
+                    })
+                    .catch((err) => {
+                        console.error(err);
+                        alert("Lỗi khi đọc file Word: " + err.message);
+                    });
+            };
+            reader.readAsArrayBuffer(file);
+            event.target.value = null; 
+        };
+
+        const processImportedQuestions = (questions) => {
+             // Always populate manualQuestions to support HTML fields, even in Text Mode.
+             // We can map these to text for the textarea if needed, but the textarea won't show formatting well.
+             // STRATEGY: If importing rich text, force usage of manualQuestions structure even if mode is text-based visually.
+             // However, to keep it simple, we will populate manualQuestions and if the user is in Text Mode, 
+             // we append to text area ONLY plaintext for fallback, OR we switch UI to display imported list?
+             
+             // Current app logic separates "Text Mode" (textarea) and "Image Mode" (list).
+             // To support rich text in "Text Mode", we have to break the pattern or convert HTML to text for the textarea.
+             // BUT user wants to KEEP formatting.
+             // SOLUTION: If we import, we fill the manualQuestions state. 
+             // IF the user is in a "Text Mode" (Review/Consolidate), we should populate the Textarea with HTML strings.
+             // The user will see tags like <p>H<sub>2</sub>O</p>. This is acceptable for "Standardizing".
+             
+            if (isImageMode) {
+                const formattedForState = questions.map((q, idx) => ({
+                    ...q,
+                    id: idx
+                }));
+                setManualQuestions(formattedForState);
+            } else {
+                // For Text Mode: Append HTML strings to the textarea.
+                // The parseQuestions logic needs to handle HTML tags or strip them?
+                // Actually, if we put HTML in the textarea, parseQuestions (which uses regex on text) might break 
+                // OR we have to update parseQuestions to handle HTML strings.
+                
+                // BETTER: We update parseQuestions to just accept the lines if they look like HTML.
+                // But the easiest way to preserve data integrity is to just put the raw HTML string into the text area.
+                // The parseQuestions function splits by newline.
+                // Mammoth output doesn't necessarily have newlines between Ps.
+                // We need to construct a string representation.
+                
+                const formattedString = questions.map(q => {
+                    // We strip the HTML tags for the text area for structure, but keep inner tags?
+                    // No, that's hard.
+                    // Let's just output the text content but maybe simple mapping for the user?
+                    // "Câu 1: H<sub>2</sub>O"
+                    return `${q.question}\nA. ${q.options.A}\nB. ${q.options.B}\nC. ${q.options.C}\nD. ${q.options.D}\nĐáp án đúng: ${q.correctAnswer}`;
+                }).join('\n\n');
+                
+                setQuestionsText(prev => prev ? prev + '\n\n' + formattedString : formattedString);
+            }
+        };
+
+
+        const parseQuestions = useCallback((text) => {
+          // This function parses the Textarea content.
+          // If the text area contains HTML tags (from import), we treat them as part of the string.
+          // The renderer (StudentView) will use dangerouslySetInnerHTML to render them.
+          
+          const questionBlocks = text.trim().split(/\n\s*\n/).filter(block => block.trim() !== '');
+          
+          if (questionBlocks.length === 0) {
+              return { valid: false, error: 'Vui lòng nhập nội dung câu hỏi.' };
+          }
+
+          const questions = [];
+          
+          for (let i = 0; i < questionBlocks.length; i++) {
+              const block = questionBlocks[i];
+              const lines = block.trim().split('\n').map(line => line.trim()).filter(Boolean);
+              const questionNum = i + 1;
+
+              if (lines.length < 2) {
+                  return { valid: false, error: `Câu số ${questionNum} bị lỗi: Nội dung quá ngắn.` };
+              }
+              
+              const questionLine = lines[0];
+              
+              const answerLine = lines.find(line => line.toLowerCase().startsWith('đáp án đúng:'));
+              if (!answerLine) {
+                  return { valid: false, error: `Câu số ${questionNum} bị lỗi: Thiếu dòng "Đáp án đúng: ..."` };
+              }
+              
+              const answerMatch = answerLine.match(/đáp án đúng:\s*([a-d])/i);
+              if (!answerMatch) {
+                  return { valid: false, error: `Câu số ${questionNum} bị lỗi: Định dạng đáp án không đúng.` };
+              }
+              const correctAnswer = answerMatch[1].toUpperCase();
+              
+              const optionLines = lines.slice(1).filter(line => !line.toLowerCase().startsWith('đáp án đúng:'));
+              
+              let options = {};
+              
+              // Handle single line options A. ... B. ...
+              if (optionLines.length === 1) {
+                  const optionsText = optionLines[0];
+                  // If it contains HTML, this regex might be tricky, but usually options are separated by spaces.
+                  // For robust HTML support, imported text is usually multi-line.
+                  const optionsMatch = optionsText.match(/^A[.)]\s*(.*?)\s*B[.)]\s*(.*?)\s*C[.)]\s*(.*?)\s*D[.)]\s*(.*)$/i);
+                  if (optionsMatch) {
+                      options = { A: optionsMatch[1].trim(), B: optionsMatch[2].trim(), C: optionsMatch[3].trim(), D: optionsMatch[4].trim() };
+                  }
+              }
+              
+              if (Object.keys(options).length === 0 && optionLines.length >= 4) {
+                   const getOpt = (prefix) => {
+                       const line = optionLines.find(l => l.match(new RegExp(`^${prefix}[.)]`, 'i')));
+                       // Remove prefix A. but keep HTML tags if any
+                       return line ? line.replace(new RegExp(`^${prefix}[.)]\\s*`, 'i'), '').trim() : null;
+                   };
+                   
+                   options = {
+                       A: getOpt('A'),
+                       B: getOpt('B'),
+                       C: getOpt('C'),
+                       D: getOpt('D')
+                   };
+              }
+
+              if (!options.A || !options.B || !options.C || !options.D) {
+                   return { valid: false, error: `Câu số ${questionNum} bị lỗi: Không tìm thấy đủ 4 lựa chọn.` };
+              }
+              
+              questions.push({ id: i, question: questionLine, options, correctAnswer });
+          }
+
+          if (questions.length < 3 || questions.length > 15) {
+              return { valid: false, error: `Số lượng câu hỏi không hợp lệ (${questions.length}). Vui lòng nhập từ 3 đến 15 câu.` };
+          }
+
+          return { valid: true, questions };
+        }, []);
+
+        const handleStart = useCallback(() => {
+          setError(null);
+          let finalQuestions = [];
+
+          if (isImageMode) {
+              // Validate manual questions
+              for (let i = 0; i < manualQuestions.length; i++) {
+                  const q = manualQuestions[i];
+                  // Changed check to allow HTML string length
+                  if (!q.question.trim() && (!q.images || q.images.length === 0)) { 
+                      setError(`Câu số ${i+1}: Cần nhập nội dung câu hỏi hoặc tải ảnh câu hỏi.`); return; 
+                  }
+                  if (!q.options.A.trim() && (!q.optionImages?.A || q.optionImages.A.length === 0)) { setError(`Câu số ${i+1}: Đáp án A trống.`); return; }
+                  if (!q.options.B.trim() && (!q.optionImages?.B || q.optionImages.B.length === 0)) { setError(`Câu số ${i+1}: Đáp án B trống.`); return; }
+                  if (!q.options.C.trim() && (!q.optionImages?.C || q.optionImages.C.length === 0)) { setError(`Câu số ${i+1}: Đáp án C trống.`); return; }
+                  if (!q.options.D.trim() && (!q.optionImages?.D || q.optionImages.D.length === 0)) { setError(`Câu số ${i+1}: Đáp án D trống.`); return; }
+              }
+              finalQuestions = manualQuestions;
+          } else {
+              if (hasPhrase && !secretPhrase.trim() && !secretImage) {
+                setError(`${gameMode.startsWith('review') ? 'Từ khóa' : 'Từ khóa'} không được để trống.`);
+                return;
+              }
+              const result = parseQuestions(questionsText);
+              if (!result.valid) {
+                  setError(result.error);
+                  return;
+              }
+              finalQuestions = result.questions;
+          }
+          
+          let finalIcon;
+          if (selectedOption === 'random') {
+              finalIcon = ICON_TYPES[Math.floor(Math.random() * ICON_TYPES.length)];
+          } else {
+              finalIcon = SUBJECT_OPTIONS.find(opt => opt.name === selectedOption)?.icon || 'book';
+          }
+
+          onStartGame({
+            secretPhrase: secretPhrase.trim().toUpperCase(),
+            secretImage: secretImage, // Truyền ảnh từ khóa
+            secretImageRatio: secretImageRatio, // Truyền tỷ lệ ảnh
+            questions: finalQuestions,
+            icon: finalIcon,
+            totalScore: Math.min(Math.max(Number(totalScore), 1), 10), // Force range 1-10
+            timeLimit: Number(timeLimit) || 0 // 0 means no limit
+          });
+        }, [secretPhrase, secretImage, secretImageRatio, questionsText, selectedOption, onStartGame, parseQuestions, hasPhrase, isImageMode, manualQuestions, totalScore, timeLimit]);
+        
+        // --- EXPORT FILE LOGIC ---
+        // --- HÀM XUẤT FILE (ĐÃ SỬA LỖI FONT VÀ ÂM THANH CHO FILE TẢI VỀ) ---
+        const handleExport = () => {
+            // 1. Kiểm tra và lấy dữ liệu câu hỏi
+            let questions = [];
+            if (isImageMode) {
+                questions = manualQuestions;
+            } else {
+                const blocks = questionsText.trim().split(/\n\s*\n/);
+                questions = blocks.map((b, i) => {
+                    const lines = b.split('\n').map(l => l.trim()).filter(Boolean);
+                    if (lines.length < 2) return null;
+                    const ansLine = lines.find(l => l.toLowerCase().includes('đáp án') || l.toLowerCase().includes('key'));
+                    const corr = ansLine ? ansLine.split(/[:\s]/).pop().toUpperCase() : 'A';
+                    return {
+                        id: i, question: lines[0],
+                        options: {
+                            A: lines.find(l => l.startsWith('A.'))?.substring(2).trim() || "A",
+                            B: lines.find(l => l.startsWith('B.'))?.substring(2).trim() || "B",
+                            C: lines.find(l => l.startsWith('C.'))?.substring(2).trim() || "C",
+                            D: lines.find(l => l.startsWith('D.'))?.substring(2).trim() || "D"
+                        },
+                        correctAnswer: corr.match(/[ABCD]/) ? corr : 'A'
+                    };
+                }).filter(q => q);
+            }
+
+            if (questions.length === 0) { alert("Chưa nhập câu hỏi!"); return; }
+
+            // 2. Chuẩn bị dữ liệu
+            const finalIcon = selectedOption === 'random' 
+                ? ICON_TYPES[Math.floor(Math.random() * ICON_TYPES.length)] 
+                : (SUBJECT_OPTIONS.find(s => s.name === selectedOption)?.icon || 'book');
+
+            const data = {
+                gameMode, 
+                secretPhrase: secretPhrase.toUpperCase(), 
+                secretImage: secretImage, // Lưu ảnh từ khóa vào file export
+                secretImageRatio: secretImageRatio, // Lưu tỷ lệ ảnh
+                questions, 
+                totalScore: Number(totalScore), timeLimit: Number(timeLimit), 
+                icon: finalIcon
+            };
+
+            // 3. TẠO NỘI DUNG FILE MỚI (QUAN TRỌNG: ẨN THẺ SCRIPT)
+            // Sử dụng các biến rời rạc để tránh parser của trình duyệt hiểu nhầm khi đọc source code
+            const tagScriptOpen = '<' + 'script';
+            const tagScriptClose = '<' + '/script>';
+            const tagBodyClose = '<' + '/body>';
+            const tagHtmlClose = '<' + '/html>';
+
+            // Escape script content to prevent nesting issues inside JSON string
+            // Also escape Unicode separator chars to prevent syntax errors
+            const json = JSON.stringify(data)
+                .replace(new RegExp(tagScriptClose, 'g'), '<\\/script>')
+                .replace(/\u2028/g, '\\u2028')
+                .replace(/\u2029/g, '\\u2029');
+            
+            // Get current source code
+            const scriptContent = document.querySelector('script[type="text/babel"]').innerHTML;
+            
+            // Fix sound paths in source code
+            const fixedScript = scriptContent.replace(
+                /const SOUND_URLS = \{[\s\S]*?\};/, 
+                `const SOUND_URLS = { tick: "./sounds/tick.mp3", correct: "./sounds/correct.mp3", wrong: "./sounds/wrong.mp3", scratch: "./sounds/scratch.mp3", win: "./sounds/win.mp3" };`
+            );
+
+            // Construct Head HTML manually without backticks for outer structure to be safe
+            let htmlHead = '<!DOCTYPE html>\n<html lang="vi">\n<head>\n';
+            htmlHead += '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">\n';
+            htmlHead += '<title>Bài Kiểm Tra</title>\n';
+            htmlHead += '<style>\n';
+            htmlHead += "* { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important; }\n";
+            htmlHead += 'body { background-color: #0b0c10; color: white; margin: 0; }\n';
+            htmlHead += '.text-yellow-400 { color: #facc15 !important; text-shadow: 1px 1px 2px black; }\n';
+            htmlHead += '.text-red-500 { color: #ef4444 !important; text-shadow: 1px 1px 2px black; }\n';
+            htmlHead += '.bg-yellow-400 { background-color: #facc15 !important; color: black !important; }\n';
+            htmlHead += '.bg-blue-600 { background-color: #2563eb !important; color: white !important; }\n';
+            htmlHead += '.fixed { position: fixed; } .inset-0 { top:0; right:0; bottom:0; left:0; }\n';
+            htmlHead += '.flex { display: flex; } .flex-col { flex-direction: column; }\n';
+            htmlHead += '.items-center { align-items: center; } .justify-center { justify-content: center; }\n';
+            htmlHead += '.z-50 { z-index: 50; } .bg-black\\/90 { background-color: rgba(0,0,0,0.9); }\n';
+            htmlHead += '.custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }\n';
+            htmlHead += '.custom-scrollbar::-webkit-scrollbar-track { background: #1f2833; }\n';
+            htmlHead += '.custom-scrollbar::-webkit-scrollbar-thumb { background: #facc15; border-radius: 3px; }\n';
+            htmlHead += 'sup { vertical-align: super; font-size: smaller; line-height: 0; } sub { vertical-align: sub; font-size: smaller; line-height: 0; } strong { font-weight: bold; color: #facc15; } em { font-style: italic; } .question-content img { display: inline-block; max-width: 100%; height: auto; border-radius: 4px; margin: 4px 0; } .option-content img { display: inline-block; max-height: 50px; vertical-align: middle; }\n';
+            htmlHead += '</style>\n';
+            // Use local paths for export as requested (offline capable)
+            htmlHead += tagScriptOpen + ' src="js/tailwind.js">' + tagScriptClose + '\n';
+            htmlHead += tagScriptOpen + ' src="js/react.js">' + tagScriptClose + '\n';
+            htmlHead += tagScriptOpen + ' src="js/react-dom.js">' + tagScriptClose + '\n';
+            htmlHead += tagScriptOpen + ' src="js/babel.js">' + tagScriptClose + '\n';
+            htmlHead += tagScriptOpen + ' src="js/mammoth.js">' + tagScriptClose + '\n';
+            // Inject Data
+            htmlHead += tagScriptOpen + '>window.EXPORTED_GAME_DATA = ' + json + ';' + tagScriptClose + '\n';
+            htmlHead += '</head>\n<body class="bg-[#0b0c10]">\n<div id="root"></div>\n';
+            // Add Loading Error Check in exported file
+            htmlHead += '<div id="loading-error" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0b0c10; color: #ef4444; z-index: 9999; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px;">' +
+                        '<h1>⚠️ LỖI KHÔNG TẢI ĐƯỢC THƯ VIỆN</h1><p>Không tìm thấy file trong thư mục "js". Đảm bảo file HTML nằm cùng cấp với thư mục "js" và "sounds".</p></div>' +
+                        tagScriptOpen + '>setTimeout(function(){if(typeof React==="undefined"){document.getElementById("loading-error").style.display="flex";}},1000);' + tagScriptClose + '\n';
+            
+            htmlHead += tagScriptOpen + ' type="text/babel">\n';
+
+            // Construct Footer
+            const htmlFooter = '\n' + tagScriptClose + '\n' + tagBodyClose + '\n' + tagHtmlClose;
+
+            const newHtml = htmlHead + fixedScript + htmlFooter;
+            
+            // 4. Download
+            const blob = new Blob([newHtml], {type: 'text/html'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Bai_Kiem_Tra_${Date.now()}.html`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        };
+
+        const placeholderText = `Nhập từ 3 đến 15 câu, mỗi câu hỏi cách nhau bằng một dòng trống.
+Ví dụ:
+Câu hỏi về thủ đô?
+A. Hà Nội
+B. TP.HCM
+C. Đà Nẵng
+D. Hải Phòng
+Đáp án đúng: A`;
+        
+        const iconForPreview = selectedOption === 'random' 
+          ? randomPreviewIcon 
+          : SUBJECT_OPTIONS.find(opt => opt.name === selectedOption)?.icon || 'book';
+
+        return (
+          <div className="w-full max-w-4xl p-8 bg-[#1f2833] rounded-2xl shadow-lg border border-yellow-400/20">
+            <div className="relative flex justify-center items-center mb-6">
+              <button onClick={onBack} className="absolute left-0 text-yellow-400 hover:text-white transition-colors duration-200 text-sm font-bold flex items-center gap-1 group" aria-label="Quay lại">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 transform group-hover:-translate-x-1 transition-transform" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                QUAY LẠI
+              </button>
+              <h1 className="text-3xl font-bold text-center text-yellow-400">{title}</h1>
+            </div>
+            <div className="space-y-6">
+              {/* Secret Phrase Input (Optional in image mode) */}
+              {(hasPhrase || isImageMode) && (
+                <div>
+                  <label htmlFor="secretPhrase" className="block text-lg font-semibold text-[#c5c6c7] mb-2">
+                      {isImageMode ? secretPhraseLabel : (gameMode.startsWith('review') ? 'Từ khóa Khởi động' : 'Từ khóa Luyện tập')}
+                  </label>
+                  <div className="flex items-start gap-2">
+                      <div className="flex-grow">
+                          <textarea 
+                              id="secretPhrase" 
+                              rows="2"
+                              value={secretPhrase} 
+                              onChange={(e) => setSecretPhrase(e.target.value)} 
+                              className="w-full px-4 py-3 bg-[#0b0c10] border border-yellow-500/60 rounded-lg text-white focus:ring-2 focus:ring-yellow-400 focus:outline-none transition" 
+                              placeholder={isImageMode ? secretPhrasePlaceholder : 'Nhập nội dung hoặc tải ảnh...'}
+                          />
+                      </div>
+                      
+                      {/* Nút Upload Ảnh Từ Khóa */}
+                      <div className="flex flex-col items-center">
+                          <input 
+                              type="file" 
+                              ref={secretImageInputRef} 
+                              accept="image/*" 
+                              onChange={handleSecretImageUpload} 
+                              className="hidden" 
+                          />
+                          <button 
+                              onClick={() => secretImageInputRef.current.click()}
+                              className="w-14 h-14 bg-gray-800 border-2 border-dashed border-gray-500 rounded-lg hover:border-yellow-400 hover:text-yellow-400 flex items-center justify-center transition-all group"
+                              title="Tải ảnh từ khóa"
+                          >
+                              {secretImage ? (
+                                  <img src={secretImage} alt="Secret" className="w-full h-full object-cover rounded" />
+                              ) : (
+                                  <span className="text-3xl text-gray-500 group-hover:text-yellow-400">+</span>
+                              )}
+                          </button>
+                          {secretImage && (
+                              <button onClick={() => setSecretImage(null)} className="text-xs text-red-400 mt-1 hover:text-red-300">Xóa ảnh</button>
+                          )}
+                      </div>
+                  </div>
+                </div>
+              )}
+
+              {/* QUESTION INPUT AREA */}
+              {isImageMode ? (
+                  <div className="space-y-6">
+                      <div className="flex justify-end mb-2">
+                          <input 
+                              type="file" 
+                              ref={importDocxInputRef} 
+                              accept=".docx" 
+                              onChange={handleWordUpload} 
+                              className="hidden"
+                          />
+                          <button 
+                              onClick={() => importDocxInputRef.current.click()}
+                              className="px-4 py-2 bg-green-600 text-white font-bold rounded hover:bg-green-500 flex items-center gap-2 transition-colors"
+                          >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              Nhập câu hỏi từ file Word
+                          </button>
+                      </div>
+                      
+                      {manualQuestions.map((q, idx) => (
+                          <div key={idx} className="p-4 bg-[#0b0c10] rounded-xl border border-gray-700">
+                              <div className="flex justify-between mb-2">
+                                  <h3 className="text-yellow-400 font-bold">Câu hỏi số {idx + 1}</h3>
+                                  {manualQuestions.length > 1 && (
+                                      <button onClick={() => removeQuestion(idx)} className="text-red-400 hover:text-red-300 text-sm font-semibold">Xóa</button>
+                                  )}
+                              </div>
+                              <div className="mb-4">
+                                  <label className="block text-sm text-gray-400 mb-1 font-bold">1. Nội dung & Hình ảnh câu hỏi:</label>
+                                  <input type="text" value={q.question} onChange={(e) => handleQuestionChange(idx, 'question', e.target.value)} className="w-full p-2 bg-gray-800 rounded border border-gray-600 text-white mb-2" placeholder="Nhập câu hỏi..."/>
+                                  
+                                  <div className="mt-1">
+                                      <ImageUploader 
+                                          images={q.images} 
+                                          onUpload={(newImgs) => handleQuestionImagesUpload(idx, newImgs)} 
+                                          onRemove={(imgIdx) => handleQuestionImageRemove(idx, imgIdx)}
+                                          maxDim={800}
+                                      />
+                                  </div>
+                              </div>
+                              <label className="block text-sm text-gray-400 mb-2 font-bold">2. Các đáp án (Nhập chữ hoặc tải ảnh):</label>
+                              <div className="grid grid-cols-1 gap-4 mb-4">
+                                  {['A', 'B', 'C', 'D'].map((opt) => (
+                                      <div key={opt} className="flex flex-col bg-gray-900/80 p-3 rounded border border-gray-700">
+                                          <div className="flex items-center gap-2 mb-2">
+                                              <span className="text-yellow-400 font-bold text-lg w-6 text-center">{opt}</span>
+                                              <input type="text" value={q.options[opt]} onChange={(e) => handleOptionChange(idx, opt, e.target.value)} className="flex-1 p-2 bg-gray-800 rounded border border-gray-600 text-white text-sm" placeholder={`Nội dung đáp án ${opt}`}/>
+                                          </div>
+                                          {/* Image Uploader for Option */}
+                                          <div className="flex items-center gap-2 pl-8">
+                                               <span className="text-xs text-gray-500">Thêm ảnh:</span>
+                                               <ImageUploader 
+                                                  images={q.optionImages?.[opt] || []} 
+                                                  onUpload={(newImgs) => handleOptionImagesUpload(idx, opt, newImgs)} 
+                                                  onRemove={(imgIdx) => handleOptionImageRemove(idx, opt, imgIdx)}
+                                                  maxDim={300}
+                                                  compact={true}
+                                              />
+                                          </div>
+                                      </div>
+                                  ))}
+                              </div>
+                              <div className="flex items-center gap-2 mt-2 bg-yellow-400/10 p-2 rounded border border-yellow-400/30 inline-block">
+                                  <label className="text-sm text-yellow-400 font-bold">Đáp án đúng:</label>
+                                  <select value={q.correctAnswer} onChange={(e) => handleQuestionChange(idx, 'correctAnswer', e.target.value)} className="bg-gray-800 text-white border border-gray-600 rounded p-1 px-3 font-bold">
+                                      <option value="A">A</option>
+                                      <option value="B">B</option>
+                                      <option value="C">C</option>
+                                      <option value="D">D</option>
+                                  </select>
+                              </div>
+                          </div>
+                      ))}
+                      <button onClick={addQuestion} className="w-full py-3 border-2 border-dashed border-gray-600 text-gray-300 rounded-lg hover:border-yellow-400 hover:text-yellow-400 transition flex items-center justify-center gap-2 font-semibold text-lg bg-gray-900/50">
+                          <span className="text-2xl">+</span> Thêm câu hỏi
+                      </button>
+                  </div>
+              ) : (
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                        <label htmlFor="questions" className="block text-lg font-semibold text-[#c5c6c7]">3 đến 15 câu hỏi trắc nghiệm</label>
+                        <div>
+                          <input 
+                              type="file" 
+                              ref={importDocxInputRef} 
+                              accept=".docx" 
+                              onChange={handleWordUpload} 
+                              className="hidden"
+                          />
+                          <button 
+                              onClick={() => importDocxInputRef.current.click()}
+                              className="px-4 py-2 bg-green-600 text-white font-bold rounded hover:bg-green-500 flex items-center gap-2 transition-colors text-sm"
+                          >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              Nhập câu hỏi từ file Word
+                          </button>
+                        </div>
+                    </div>
+                    <textarea id="questions" value={questionsText} onChange={(e) => setQuestionsText(e.target.value)} className="w-full px-4 py-3 bg-[#0b0c10] border border-yellow-500/60 rounded-lg text-white focus:ring-2 focus:ring-yellow-400 focus:outline-none transition h-64" placeholder={placeholderText}/>
+                  </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* TOTAL SCORE INPUT */}
+                  <div>
+                    <label htmlFor="total-score" className="block text-lg font-semibold text-[#c5c6c7] mb-2">Tổng điểm toàn bài</label>
+                    <input
+                        id="total-score"
+                        type="number"
+                        min="1"
+                        max="10"
+                        value={totalScore}
+                        onChange={(e) => setTotalScore(e.target.value)}
+                        className="w-full px-4 py-3 bg-[#0b0c10] border border-yellow-500/60 rounded-lg text-white focus:ring-2 focus:ring-yellow-400 focus:outline-none transition"
+                        placeholder="Từ 1 đến 10"
+                    />
+                  </div>
+
+                  {/* TIME LIMIT INPUT */}
+                  <div>
+                    <label htmlFor="time-limit" className="block text-lg font-semibold text-[#c5c6c7] mb-2">Thời gian trả lời (giây)</label>
+                    <input
+                        id="time-limit"
+                        type="number"
+                        min="0"
+                        value={timeLimit}
+                        onChange={(e) => setTimeLimit(e.target.value)}
+                        className="w-full px-4 py-3 bg-[#0b0c10] border border-yellow-500/60 rounded-lg text-white focus:ring-2 focus:ring-yellow-400 focus:outline-none transition"
+                        placeholder="0 = Không giới hạn"
+                    />
+                  </div>
+              </div>
+
+              {/* ICON SELECT */}
+              <div>
+                <label htmlFor="icon-select" className="block text-lg font-semibold text-[#c5c6c7] mb-2">Chọn biểu tượng câu hỏi</label>
+                <div className="flex items-center gap-4">
+                  <div className="relative flex-grow">
+                    <select id="icon-select" value={selectedOption} onChange={(e) => setSelectedOption(e.target.value)} className="w-full px-4 py-3 bg-[#0b0c10] border border-yellow-500/60 rounded-lg text-white focus:ring-2 focus:ring-yellow-400 focus:outline-none transition appearance-none">
+                      <option value="random">Ngẫu nhiên</option>
+                      {SUBJECT_OPTIONS.map((subject) => <option key={subject.name} value={subject.name}>{subject.name}</option>)}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
+                      <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-yellow-400/10 text-[#c5c6c7] flex-shrink-0">
+                    <Icon type={iconForPreview} className="w-8 h-8" />
+                  </div>
+                </div>
+              </div>
+              {error && <p className="text-red-400 text-center bg-red-900/50 p-3 rounded-lg font-bold border border-red-500">{error}</p>}
+              
+              <div className="flex gap-4">
+                  <button onClick={handleStart} className="flex-1 py-4 text-xl font-bold bg-yellow-400 text-black rounded-lg hover:bg-white hover:shadow-lg hover:shadow-yellow-400/50 transform hover:-translate-y-1 transition-all duration-300">
+                    BẮT ĐẦU
+                  </button>
+                  
+                  <button onClick={handleExport} className="flex-1 py-4 text-xl font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-500 hover:shadow-lg hover:shadow-blue-600/50 transform hover:-translate-y-1 transition-all duration-300 flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    LƯU FILE VỀ MÁY(HTML)
+                  </button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // --- STUDENT CALLER COMPONENT ---
+      const StudentCaller = () => {
+          const [studentCount, setStudentCount] = useState(50); 
+          const [studentNumber, setStudentNumber] = useState(null);
+          const [animationKey, setAnimationKey] = useState(0);
+          const [isExpanded, setIsExpanded] = useState(false);
+
+          const callStudent = () => {
+              if (studentCount > 0) {
+                const newNumber = Math.floor(Math.random() * studentCount) + 1;
+                setStudentNumber(newNumber);
+                setAnimationKey(prevKey => prevKey + 1);
+              }
+          };
+
+          return (
+              <div className="p-2 bg-[#1f2833] rounded-xl shadow-lg border border-yellow-400/20 text-center transition-all duration-300">
+                  <style>{`
+                      @keyframes flip-in {
+                          0% { transform: perspective(400px) rotateX(90deg); opacity: 0; }
+                          40% { transform: perspective(400px) rotateX(-20deg); }
+                          60% { transform: perspective(400px) rotateX(10deg); }
+                          80% { transform: perspective(400px) rotateX(-5deg); }
+                          100% { transform: perspective(400px) rotateX(0deg); opacity: 1; }
+                      }
+                      .animate-flip-in {
+                          animation: flip-in 0.6s ease-out forwards;
+                      }
+                  `}</style>
+
+                  <div 
+                      className="flex items-center justify-between cursor-pointer p-1"
+                      onClick={() => setIsExpanded(!isExpanded)}
+                  >
+                      <h3 className="text-sm font-bold text-yellow-400">GỌI TÊN NGẪU NHIÊN</h3>
+                      <button className="text-yellow-400 text-xl font-mono leading-none px-2 rounded hover:bg-yellow-400/20">
+                          {isExpanded ? '−' : '+'}
+                      </button>
+                  </div>
+                  
+                  <div className={`transition-all duration-300 ease-in-out overflow-hidden ${isExpanded ? 'max-h-96 mt-2' : 'max-h-0'}`}>
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                            <label htmlFor="studentCount" className="text-sm font-semibold text-white/80 whitespace-nowrap">Sĩ số:</label>
+                            <input 
+                                id="studentCount"
+                                type="number"
+                                value={studentCount}
+                                onChange={(e) => setStudentCount(parseInt(e.target.value, 10) || 0)}
+                                className="w-20 px-2 py-1 bg-black/30 border border-yellow-500/50 rounded-md text-white text-center"
+                                min="1"
+                            />
+                            <div className="h-16 flex-grow flex items-center justify-center bg-black/20 rounded-lg">
+                              <div key={animationKey} className="text-5xl font-black text-white animate-flip-in" style={{ textShadow: '2px 2px 4px #000' }}>
+                                  {studentNumber ?? '?'}
+                              </div>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={callStudent}
+                            disabled={studentCount <= 0}
+                            className="w-full text-black rounded-lg hover:bg-white disabled:bg-gray-500 disabled:cursor-not-allowed transition-all duration-300"
+                            style={{ padding: '8px', fontSize: '14px', backgroundColor: '#facc15', fontWeight: 'bold', width: '320px' }}
+                        >
+                            CHÚC MỪNG EM CÓ STT LÊN BẢNG
+                        </button>
+                    </div>
+                  </div>
+              </div>
+          );
+      };
+
+      // --- STUDENT VIEW COMPONENT ---
+      const StudentView = ({ gameData, onPlayAgain, onEnd, gameMode }) => {
+        const [correctAnswersCount, setCorrectAnswersCount] = useState(0);
+        const [answeredQuestionsCount, setAnsweredQuestionsCount] = useState(0);
+        const [statuses, setStatuses] = useState(() =>
+          Object.fromEntries(gameData.questions.map(q => [q.id, IconStatus.IDLE]))
+        );
+        const [activeQuestion, setActiveQuestion] = useState(null);
+        const [guess, setGuess] = useState('');
+        const [gameOverReason, setGameOverReason] = useState(null);
+        const isGameOver = gameOverReason !== null;
+        const [message, setMessage] = useState(null);
+        const [answerFeedback, setAnswerFeedback] = useState(null);
+        const [incorrectGuesses, setIncorrectGuesses] = useState(0);
+        const [currentCorrectAnswerText, setCurrentCorrectAnswerText] = useState(null);
+        const MAX_INCORRECT_GUESSES = 3;
+
+        const canvasRef = useRef(null);
+        const triggerConfettiRef = useRef(() => {});
+        const phraseContainerRef = useRef(null);
+        const phraseRef = useRef(null);
+
+        // Update logic: Phrase exists if text is present OR image is present
+        const hasPhrase = (gameData.secretPhrase && gameData.secretPhrase.length > 0) || !!gameData.secretImage;
+
+        // Logic for Image Scratch Mode
+        const isSecretImageMode = !!gameData.secretImage;
+        const scratchRows = isSecretImageMode ? 5 : ((gameData.secretPhrase && gameData.secretPhrase.length > 40) ? 2 : 1);
+        const numAreas = isSecretImageMode ? 30 : (gameData.questions.length * 2 + 2);
+        
+        const totalScore = gameData.totalScore || 10;
+        const timeLimit = gameData.timeLimit || 0;
+
+        const score = (correctAnswersCount / gameData.questions.length) * totalScore;
+
+        const phraseContainerClass = useMemo(() => {
+            if (!hasPhrase) return '';
+            
+            // Logic mới cho ảnh: Không dùng class cố định để tránh conflict style,
+            // dùng style inline hoặc class đơn giản trong render.
+            if (isSecretImageMode) {
+                return 'relative mx-auto mb-6 shadow-lg border border-gray-700 bg-black rounded-2xl overflow-hidden'; 
+            }
+
+            const len = gameData.secretPhrase.length;
+            let widthClass = 'max-w-3xl';
+            if (len <= 20) widthClass = 'max-w-lg'; 
+            else if (len <= 40) widthClass = 'max-w-xl';
+            else if (len <= 60) widthClass = 'max-w-2xl';
+            const aspectClass = 'aspect-[3/1]';
+            return `relative w-full ${widthClass} mx-auto mb-8 ${aspectClass} rounded-2xl`;
+        }, [gameData.secretPhrase, hasPhrase, isSecretImageMode]);
+        
+        const titles = {
+            review_with_phrase: 'KHỞI ĐỘNG CÓ TỪ KHÓA',
+            consolidate_with_phrase: 'LUYỆN TẬP KIẾN THỨC',
+            review_no_phrase: 'KHỞI ĐỘNG TỐC ĐỘ NHANH',
+            consolidate_no_phrase: 'LUYỆN TẬP KIẾN THỨC',
+            image_mode_warmup: 'KHỞI ĐỘNG',
+            image_mode_practice: 'LUYỆN TẬP KIẾN THỨC'
+        };
+        const title = titles[gameMode] || 'BÀI KIỂM TRA';
+        
+        const guessPlaceholder = (gameMode.startsWith('review') || gameMode === 'image_mode_warmup') ? 'Đoán từ khóa...' : 'Đoán cụm từ...';
+
+        const showMessage = (text, type, duration = 3000) => {
+          setMessage({ text, type });
+          setTimeout(() => setMessage(null), duration);
+        };
+
+        const endGame = useCallback((reason) => {
+          if (gameOverReason) return;
+          setGameOverReason(reason);
+          if (hasPhrase) {
+            canvasRef.current?.revealAll();
+          }
+          if (reason === 'win' || (reason === 'completed' && correctAnswersCount === gameData.questions.length)) {
+            // Play win sound if won
+            if (reason === 'win') playSound('win');
+            triggerConfettiRef.current?.();
+          }
+        }, [gameOverReason, hasPhrase, correctAnswersCount, gameData.questions.length]);
+        
+        useEffect(() => {
+          if (hasPhrase && correctAnswersCount > 0 && correctAnswersCount === gameData.questions.length && !isGameOver) {
+            endGame('win');
+          }
+        }, [correctAnswersCount, isGameOver, endGame, gameData.questions.length, hasPhrase]);
+        
+        useEffect(() => {
+            if (!hasPhrase && answeredQuestionsCount > 0 && answeredQuestionsCount === gameData.questions.length && !isGameOver) {
+                endGame('completed');
+            }
+        }, [answeredQuestionsCount, isGameOver, endGame, hasPhrase, gameData.questions.length]);
+
+        useEffect(() => {
+          const container = phraseContainerRef.current;
+          const phrase = phraseRef.current;
+          if (!container || !phrase) return;
+          const adjustFontSize = () => {
+              phrase.style.fontSize = '';
+              let currentFontSize = parseFloat(window.getComputedStyle(phrase).fontSize);
+              while ((phrase.scrollWidth > container.clientWidth || phrase.scrollHeight > container.clientHeight) && currentFontSize > 14) {
+                  currentFontSize -= 1;
+                  phrase.style.fontSize = `${currentFontSize}px`;
+              }
+          };
+          const observer = new ResizeObserver(adjustFontSize);
+          observer.observe(container);
+          adjustFontSize();
+          return () => observer.disconnect();
+        }, [gameData.secretPhrase]);
+
+        const handleIconClick = (question) => {
+          if (statuses[question.id] === IconStatus.IDLE && !isGameOver) {
+            setActiveQuestion(question);
+          }
+        };
+        
+        const handleTimeout = () => {
+            if (activeQuestion) {
+                const correctOptionText = activeQuestion.options[activeQuestion.correctAnswer];
+                setCurrentCorrectAnswerText(`${activeQuestion.correctAnswer}. ${correctOptionText}`);
+                setStatuses(prev => ({ ...prev, [activeQuestion.id]: IconStatus.INCORRECT }));
+                setAnswerFeedback('timeout');
+                playSound('wrong', 0.6); // Play error sound slightly louder
+                setAnsweredQuestionsCount(prev => prev + 1);
+                setActiveQuestion(null);
+            }
+        };
+
+        const handleAnswer = (question, answer) => {
+          if (answer === question.correctAnswer) {
+            setStatuses(prev => ({ ...prev, [question.id]: IconStatus.CORRECT }));
+            setCorrectAnswersCount(prev => prev + 1);
+            if(hasPhrase) {
+                for (let i = 0; i < 2; i++) { canvasRef.current?.revealRandomArea(); }
+            }
+            setAnswerFeedback('success');
+            playSound('correct', 0.6); // Play success sound slightly louder
+            setCurrentCorrectAnswerText(null);
+          } else {
+            setStatuses(prev => ({ ...prev, [question.id]: IconStatus.INCORRECT }));
+            setAnswerFeedback('error');
+            playSound('wrong', 0.6); // Play error sound slightly louder
+            // Set Correct Answer Text for Feedback
+            const correctOptionText = question.options[question.correctAnswer];
+            setCurrentCorrectAnswerText(`${question.correctAnswer}. ${correctOptionText}`);
+          }
+          setAnsweredQuestionsCount(prev => prev + 1);
+          setActiveQuestion(null);
+        };
+
+        const handleGuessSubmit = () => {
+          
+          if (!gameData.secretPhrase || gameData.secretPhrase.trim() === "") {
+               endGame('win');
+               return;
+          }
+
+          if (guess.trim().toUpperCase() === gameData.secretPhrase.toUpperCase()) {
+            endGame('win');
+          } else {
+            const newIncorrectGuesses = incorrectGuesses + 1;
+            setIncorrectGuesses(newIncorrectGuesses);
+            if (newIncorrectGuesses >= MAX_INCORRECT_GUESSES) {
+              endGame('lose');
+            } else {
+              showMessage(`Vẫn chưa đúng. Bạn còn ${MAX_INCORRECT_GUESSES - newIncorrectGuesses} lượt đoán.`, 'error');
+              playSound('wrong', 0.6);
+              setGuess('');
+            }
+          }
+        };
+        
+        const getIconClass = (status) => {
+          switch (status) {
+            case IconStatus.CORRECT: return 'bg-green-500/80 text-white cursor-not-allowed relative border-2 border-green-400 shadow-lg shadow-green-500/20';
+            case IconStatus.INCORRECT: return 'bg-red-500/80 text-white cursor-not-allowed opacity-60 relative border-2 border-red-400';
+            default: return 'bg-[#1f2833] border-2 border-yellow-500/60 text-yellow-400 hover:bg-yellow-400 hover:text-black hover:border-yellow-400 hover:shadow-lg hover:shadow-yellow-400/30 transform hover:-translate-y-1';
+          }
+        };
+
+        const scratchArea = (
+          <div className={phraseContainerClass}>
+            {isSecretImageMode ? (
+               // IMAGE MODE: Image drives the size (width/height auto)
+               <>
+                 <img
+                    src={gameData.secretImage}
+                    alt="Secret"
+                    className="block max-h-[60vh] max-w-[90vw] w-auto h-auto object-contain"
+                    // Thẻ img sẽ tự mở rộng div cha, và canvas absolute sẽ phủ lên.
+                 />
+                 <div className="absolute inset-0">
+                    <ScratchCanvas ref={canvasRef} numAreas={numAreas} rows={scratchRows} />
+                 </div>
+               </>
+            ) : (
+               // TEXT MODE: Container drives the size via aspect-ratio class
+               <>
+                 <div ref={phraseContainerRef} className="absolute inset-0 flex items-center justify-center overflow-hidden p-0">
+                     <div className="p-12 w-full h-full flex items-center justify-center">
+                        <p ref={phraseRef} className="text-4xl md:text-7xl font-black text-center text-yellow-400 select-none leading-tight whitespace-pre-wrap" style={{ textShadow: '2px 2px 4px #000' }}>{gameData.secretPhrase}</p>
+                     </div>
+                 </div>
+                 <ScratchCanvas ref={canvasRef} numAreas={numAreas} rows={scratchRows} />
+               </>
+            )}
+          </div>
+        );
+
+        const questionIcons = (
+          <div className="flex flex-row flex-wrap justify-center gap-4 w-full max-w-5xl mb-6 pb-4">
+            {gameData.questions.map(q => (
+              <div key={q.id} className="flex flex-col items-center text-center gap-2 w-20">
+                <div className="relative w-full">
+                  <button onClick={() => handleIconClick(q)} className={`w-full aspect-square flex items-center justify-center rounded-lg shadow-md transition-all duration-300 ${getIconClass(statuses[q.id])}`} aria-label={`Câu hỏi ${q.id + 1}`}>
+                    <Icon type={gameData.icon} className="w-8 h-8 md:w-10 md:h-10" />
+                    {statuses[q.id] === IconStatus.CORRECT && <span className="absolute top-1 right-1 text-2xl">✅</span>}
+                    {statuses[q.id] === IconStatus.INCORRECT && <span className="absolute top-1 right-1 text-2xl">❌</span>}
+                  </button>
+                </div>
+                <p className="text-sm text-[#c5c6c7] font-semibold">Câu hỏi {q.id + 1}</p>
+              </div>
+            ))}
+          </div>
+        );
+
+        return (
+          <div className="relative w-full max-w-6xl mx-auto p-4 md:p-8 flex flex-col items-center">
+          
+            <div className="fixed top-4 right-4 z-40">
+              { !activeQuestion && !isGameOver && <StudentCaller /> }
+            </div>
+
+            <Confetti triggerRef={triggerConfettiRef} />
+            {answerFeedback && <FeedbackOverlay type={answerFeedback} correctAnswerText={currentCorrectAnswerText} onClose={() => setAnswerFeedback(null)} />}
+
+            <h1 className="text-2xl md:text-4xl font-bold text-yellow-400 tracking-wider mb-2 text-center -mt-8">{title}</h1>
+            <p className="text-lg md:text-xl text-[#c5c6c7] mb-8">Số câu đúng: {correctAnswersCount}/{gameData.questions.length} | Điểm: {score.toFixed(1)}</p>
+            
+            {gameMode.startsWith('review') ? (
+                <>{hasPhrase && scratchArea}{questionIcons}</>
+            ) : (
+                <>{questionIcons}{hasPhrase && scratchArea}</>
+            )}
+
+            {!isGameOver && hasPhrase && (
+              <div className="flex flex-col items-center w-full max-w-md">
+                {isSecretImageMode ? (
+                  /* IMAGE MODE: Button ONLY */
+                  <button onClick={() => endGame('win')} className="w-full sm:w-auto px-6 py-3 font-bold bg-yellow-400 text-black rounded-lg hover:bg-white transition-all duration-300 whitespace-nowrap shadow-lg hover:shadow-yellow-400/50">
+                    Xem kết quả
+                  </button>
+                ) : (
+                  /* TEXT MODE: Input + Button + Count */
+                  <>
+                    <div className="flex flex-col sm:flex-row items-center gap-3 w-full">
+                      <input type="text" value={guess} onChange={(e) => setGuess(e.target.value)} className="w-full px-4 py-3 bg-[#0b0c10] border-2 border-yellow-500/60 rounded-lg text-white focus:ring-2 focus:ring-yellow-400 focus:outline-none transition" placeholder={guessPlaceholder}/>
+                      <button onClick={handleGuessSubmit} className="w-full sm:w-auto px-6 py-3 font-bold bg-yellow-400 text-black rounded-lg hover:bg-white transition-all duration-300 whitespace-nowrap">Xem kết quả</button>
+                    </div>
+                    <p className="text-md text-gray-400 mt-3">Số lượt đoán còn lại: {MAX_INCORRECT_GUESSES - incorrectGuesses}</p>
+                  </>
+                )}
+              </div>
+            )}
+
+            {message && <div className={`fixed bottom-5 right-5 px-6 py-4 rounded-lg shadow-xl text-white text-lg transition-all duration-500 animate-pulse ${message.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{message.text}</div>}
+            
+            {activeQuestion && (
+              <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+                <div className="bg-[#1f2833] rounded-2xl p-8 max-w-5xl w-full border border-yellow-400/50 max-h-[90vh] overflow-y-auto custom-scrollbar relative">
+                  {/* TIMER DISPLAY (CENTER TOP INSIDE MODAL) */}
+                  {timeLimit > 0 && (
+                      <div className="w-full flex justify-center mb-4">
+                          <CircularTimer duration={timeLimit} onTimeout={handleTimeout} />
+                      </div>
+                  )}
+
+                  <div className="flex flex-col items-center mb-6">
+                    {/* Display multiple question images if available, backward compatible with single image */}
+                    {(activeQuestion.images && activeQuestion.images.length > 0) ? (
+                        <div className="flex flex-wrap justify-center gap-4 mb-4">
+                            {activeQuestion.images.map((img, idx) => (
+                                // MODIFIED: Enforce 16:9 aspect ratio and object-contain for Question Images
+                                <img key={idx} src={img} alt={`Minh họa ${idx}`} className="w-full max-w-2xl aspect-video object-contain bg-black rounded-lg border border-gray-600" />
+                            ))}
+                        </div>
+                    ) : activeQuestion.image && (
+                        <img src={activeQuestion.image} alt="Hình minh họa" className="w-full max-w-2xl aspect-video object-contain bg-black mb-4 rounded-lg border border-gray-600" />
+                    )}
+                    
+                    <h3 className="text-2xl font-semibold text-[#c5c6c7] text-center question-content" dangerouslySetInnerHTML={{__html: activeQuestion.question}}></h3>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {Object.entries(activeQuestion.options).map(([key, value]) => (
+                      <button key={key} onClick={() => handleAnswer(activeQuestion, key)} className="p-4 text-left font-semibold bg-[#0b0c10] border-2 border-yellow-500/60 rounded-lg hover:bg-yellow-400 hover:text-black transition-all duration-200 flex flex-col gap-2 group">
+                        <div className="flex items-center">
+                            <span className="text-yellow-400 mr-2 group-hover:text-black text-xl">{key}.</span>
+                            <span className="option-content" dangerouslySetInnerHTML={{__html: value}}></span>
+                        </div>
+                        {/* Display Option Images */}
+                        {activeQuestion.optionImages && activeQuestion.optionImages[key] && activeQuestion.optionImages[key].length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-2 justify-center md:justify-start w-full">
+                                {activeQuestion.optionImages[key].map((img, idx) => (
+                                    <img key={idx} src={img} alt={`${key}-${idx}`} className="h-24 object-contain rounded border border-gray-600 bg-black" />
+                                ))}
+                            </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {isGameOver && (
+              <div className="fixed inset-0 bg-black/90 flex flex-col items-center justify-center p-4 z-50 text-center">
+                {gameOverReason !== 'win' && (
+                    <h2 className={`text-3xl md:text-4xl font-bold mb-4 ${gameOverReason === 'lose' ? 'text-red-500' : 'text-yellow-400'}`}>
+                        {gameOverReason === 'lose' ? 'TRÒ CHƠI KẾT THÚC!' : 'BÀI KIỂM TRA HOÀN TẤT!'}
+                    </h2>
+                )}
+                {gameOverReason === 'lose' && <p className="text-xl text-gray-300 mb-8">Bạn đã hết lượt đoán.</p>}
+                
+                {hasPhrase && !isSecretImageMode && (
+                    <div className="mb-8 animate-pulse"><p className="text-5xl md:text-7xl font-black text-yellow-400 whitespace-pre-wrap" style={{ textShadow: '4px 4px 8px #000' }}>{gameData.secretPhrase}</p></div>
+                )}
+                {isSecretImageMode && (
+                     <div className="mb-8 max-w-4xl h-96 mx-auto"><img src={gameData.secretImage} className="w-full h-full object-contain rounded-lg border-2 border-yellow-400 shadow-2xl" /></div>
+                )}
+
+                <div className="mb-12">
+                    <p className="text-2xl text-gray-300 mb-4">Điểm cuối cùng của bạn là:</p>
+                    <p className="text-8xl font-black text-yellow-400">{score.toFixed(1)}</p>
+                </div>
+
+                <div className="flex justify-center gap-4">
+                  <button onClick={onPlayAgain} className="px-8 py-3 text-lg font-bold bg-yellow-400 text-black rounded-lg hover:bg-white transition-all duration-300">Làm lại</button>
+                  <button onClick={onEnd} className="px-8 py-3 text-lg font-bold bg-yellow-800 text-white rounded-lg hover:bg-yellow-700 transition-all duration-300">Kết thúc</button>
+                </div>
+              </div>
+            )}
+            <CopyrightFooter />
+          </div>
+        );
+      };
+      
+      // --- APP COMPONENT ---
+      const getInitialState = () => {
+        // 1. CHECK FOR EXPORTED DATA FIRST (FOR STANDALONE HTML FILES)
+        if (window.EXPORTED_GAME_DATA) {
+            return {
+                gameView: 'STUDENT',
+                gameData: window.EXPORTED_GAME_DATA,
+                gameMode: window.EXPORTED_GAME_DATA.gameMode
+            };
+        }
+
+        // 2. CHECK LOCAL STORAGE (FOR DEVELOPMENT)
+        try {
+          const urlParams = new URLSearchParams(window.location.search);
+          const view = urlParams.get('view');
+
+          if (view === 'student') {
+            const dataString = localStorage.getItem('currentGameData');
+            if (dataString) {
+              const data = JSON.parse(dataString);
+              return {
+                gameView: 'STUDENT',
+                gameData: data,
+                gameMode: data.gameMode,
+              };
+            }
+          }
+        } catch (error) {
+          console.error("Error initializing game state from URL/localStorage:", error);
+          return { gameView: 'WELCOME', gameData: null, gameMode: null };
+        }
+
+        return { gameView: 'WELCOME', gameData: null, gameMode: null };
+      };
+
+      const App = () => {
+        const [initialAppState] = useState(getInitialState);
+        const [gameView, setGameView] = useState(initialAppState.gameView);
+        const [gameMode, setGameMode] = useState(initialAppState.gameMode);
+        const [gameData, setGameData] = useState(initialAppState.gameData);
+        const [gameKey, setGameKey] = useState(0);
+
+        const handleModeSelect = useCallback((mode) => {
+          setGameMode(mode);
+          setGameView('TEACHER');
+        }, []);
+
+        const handleStartGame = useCallback((data) => {
+          if (gameMode) {
+            const dataToStore = { ...data, gameMode };
+            try {
+              localStorage.setItem('currentGameData', JSON.stringify(dataToStore));
+              
+              const studentUrl = new URL(window.location.href);
+              studentUrl.search = '';
+              studentUrl.searchParams.set('view', 'student');
+
+              window.open(studentUrl.toString(), '_blank', 'noopener,noreferrer');
+            } catch (error) {
+              console.error("Could not save game data to localStorage or open new tab:", error);
+              alert("Dữ liệu (bao gồm hình ảnh) quá lớn để lưu trữ. Vui lòng giảm số lượng hoặc kích thước ảnh.");
+            }
+          }
+        }, [gameMode]);
+
+        const handlePlayAgain = useCallback(() => {
+          setGameKey(prevKey => prevKey + 1);
+        }, []);
+        
+        const handleEnd = useCallback(() => {
+          setGameData(null);
+          setGameView('WELCOME');
+          setGameMode(null);
+          if (window.history.pushState) {
+              const cleanUrl = new URL(window.location.href);
+              cleanUrl.search = '';
+              window.history.pushState({ path: cleanUrl.toString() }, '', cleanUrl.toString());
+          }
+        }, []);
+
+        const handleBackToWelcome = useCallback(() => {
+          setGameView('WELCOME');
+          setGameMode(null);
+          setGameData(null);
+        }, []);
+
+        return (
+          <div className="min-h-screen w-full text-white bg-[#0b0c10] flex flex-col items-center justify-center p-4 pb-8">
+            {gameView === 'WELCOME' && <WelcomeView onModeSelect={handleModeSelect} />}
+            {gameView === 'TEACHER' && gameMode && (
+              <TeacherView onStartGame={handleStartGame} gameMode={gameMode} onBack={handleBackToWelcome} />
+            )}
+            {gameView === 'STUDENT' && gameData && gameMode && (
+              <StudentView key={gameKey} gameData={gameData} onPlayAgain={handlePlayAgain} onEnd={handleEnd} gameMode={gameMode}/>
+            )}
+            <CopyrightFooter />
+          </div>
+        );
+      };
+
+      // --- ENTRY POINT ---
+      const rootElement = document.getElementById('root');
+      if (!rootElement) {
+        throw new Error("Could not find root element to mount to");
+      }
+      const root = ReactDOM.createRoot(rootElement);
+      root.render(
+        <React.StrictMode>
+          <App />
+        </React.StrictMode>
+      );
+    </script><script type="module" src="/index.tsx"></script>
